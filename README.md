@@ -54,7 +54,15 @@ Para recrear el entorno:
 
 ## Variables de entorno
 
-Copiar los nombres necesarios desde `.env.example` a `.env` y completar los valores reales.
+Crear o actualizar `.env` con los valores reales:
+
+```env
+OPENAI_API_KEY=
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_VISION_MODEL=gpt-5-mini
+CHROMA_PERSIST_DIR=vectordb/chroma
+CHROMA_COLLECTION_NAME=golf_rules
+```
 
 No commitear `.env`; ya esta ignorado por Git.
 
@@ -82,14 +90,68 @@ Cada linea contiene:
 - `metadata.heading`
 - `metadata.rule_number`
 - `metadata.chunk_type`
+- `metadata.has_visual_context`
+- `metadata.visual_assets`, cuando el chunk esta asociado a una pagina visual
+
+## Ingesta visual
+
+Algunas reglas contienen diagramas o ilustraciones que explican areas de alivio, puntos de referencia, bunkers, greens, areas de penalizacion u otras situaciones visuales.
+
+Primero se renderizan las paginas candidatas y se crea un manifiesto:
+
+```powershell
+python ingest\pdf_visuals.py
+```
+
+Esto genera:
+
+```text
+vectordb/pdf_visuals.jsonl
+vectordb/page_images/
+```
+
+Luego, cuando se vuelve a ejecutar `chunking.py`, los chunks que cruzan esas paginas quedan enlazados con los assets visuales.
+
+Opcionalmente, una vez configurado `.env` con `OPENAI_API_KEY` y, si se desea, `OPENAI_VISION_MODEL`, se pueden generar descripciones visuales preprocesadas:
+
+```powershell
+python ingest\describe_visuals.py
+```
+
+Modelo visual recomendado para esta etapa:
+
+```env
+OPENAI_VISION_MODEL=gpt-5-mini
+```
+
+Esas descripciones se guardan en `vectordb/pdf_visuals.jsonl` y luego se incorporan al texto indexable al regenerar chunks:
+
+```powershell
+python ingest\chunking.py
+```
+
+## Base vectorial
+
+Construir la base Chroma persistente desde `vectordb/chunks.jsonl`:
+
+```powershell
+python ingest\build_vector_db.py
+```
+
+El script:
+
+- lee `vectordb/chunks.jsonl`;
+- genera embeddings con `OPENAI_EMBEDDING_MODEL`;
+- crea o reemplaza la coleccion `CHROMA_COLLECTION_NAME`;
+- guarda la base en `CHROMA_PERSIST_DIR`;
+- preserva metadatos citables como regla, fuente, paginas y contexto visual.
+
+Para una prueba chica:
+
+```powershell
+python ingest\build_vector_db.py --limit 5
+```
 
 ## Proximos pasos
 
-La pieza pendiente mas importante es reemplazar el placeholder de `ingest/build_vector_db.py` por una ingesta real que:
-
-- lea `vectordb/chunks.jsonl`;
-- genere embeddings con OpenAI;
-- guarde la coleccion Chroma de forma persistente;
-- preserve los metadatos para citar reglas y paginas.
-
-Luego se puede construir la capa de consulta del agente: interpretacion visual, busqueda documental y respuesta final en formato fijo.
+Construir la capa de consulta del agente: interpretacion visual de la situacion del usuario, busqueda documental en Chroma y respuesta final en formato fijo.
