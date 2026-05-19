@@ -15,6 +15,8 @@ class PageText:
     source_name: str
     page_number: int
     text: str
+    image_count: int = 0
+    drawing_count: int = 0
 
 
 def list_pdfs(data_dir: str = "../data"):
@@ -41,6 +43,8 @@ def extract_pages(pdf_path: str) -> List[PageText]:
                     source_name=path.name,
                     page_number=page_index,
                     text=page.get_text(),
+                    image_count=len(page.get_images(full=True)),
+                    drawing_count=len(page.get_drawings()),
                 )
             )
     finally:
