@@ -21,7 +21,7 @@ except ImportError:
     from pdf_visuals import visual_pages_by_source
 
 
-MAIN_RULE_RE = re.compile(r"(?im)^(?:Regla\s+(\d{1,2})(?:\s*[\u2013-]\s*(.+))?|REGLA\s*\n\s*(\d{1,2})\b)")
+MAIN_RULE_RE = re.compile(r"(?im)^Regla\s+(\d{1,2})\s*[\u2013-]\s*(.+)$")
 SECTION_RE = re.compile(r"(?im)^\s*((?:\d{1,2})\.(?:\d{1,2})(?:[a-z])?)\s+(.+)$")
 GUIDE_SECTION_RE = re.compile(r"(?m)^(?:[IVXLCDM]+\.\s+.+|[A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00d1][A-Z\u00c1\u00c9\u00cd\u00d3\u00da\u00d1\s,;:()/-]{8,})$")
 WHITESPACE_RE = re.compile(r"[ \t]+")
@@ -175,7 +175,7 @@ def _split_pages_into_blocks(pages: Iterable[PageText]) -> List[_Block]:
                 active_heading = heading or f"Regla {rule_number}"
                 chunk_type = "main_rule"
             elif marker_type == "rule_section":
-                active_main_rule = rule_number.split(".")[0] if rule_number else active_main_rule
+                active_main_rule = rule_number or active_main_rule
                 active_heading = heading or rule_number
                 chunk_type = "rule_section"
             else:
@@ -201,7 +201,7 @@ def _split_pages_into_blocks(pages: Iterable[PageText]) -> List[_Block]:
 def _find_block_starts(text: str) -> List[tuple[int, str, Optional[str], Optional[str]]]:
     starts = []
     for match in MAIN_RULE_RE.finditer(text):
-        rule_number = match.group(1) or match.group(3)
+        rule_number = match.group(1)
         title = match.group(2)
         heading = f"Regla {rule_number}" + (f" - {title.strip()}" if title else "")
         starts.append((match.start(), "main_rule", rule_number, heading))
