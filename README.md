@@ -60,6 +60,7 @@ Crear o actualizar `.env` con los valores reales:
 OPENAI_API_KEY=
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_VISION_MODEL=gpt-5-mini
+OPENAI_ANSWER_MODEL=gpt-5-mini
 CHROMA_PERSIST_DIR=vectordb/chroma
 CHROMA_COLLECTION_NAME=golf_rules
 ```
@@ -154,4 +155,27 @@ python ingest\build_vector_db.py --limit 5
 
 ## Proximos pasos
 
-Construir la capa de consulta del agente: interpretacion visual de la situacion del usuario, busqueda documental en Chroma y respuesta final en formato fijo.
+## Consulta textual MVP
+
+Hacer una consulta textual contra Chroma y generar una respuesta fundada:
+
+```powershell
+python agent\query_agent.py "Mi bola esta injugable dentro de un bunker. Puedo dropear fuera?"
+```
+
+Para inspeccionar los chunks recuperados:
+
+```powershell
+python agent\query_agent.py "Mi consulta" --show-context
+```
+
+La respuesta debe seguir este formato:
+
+- Regla citada
+- Decision
+- Explicacion
+- Incertidumbre
+
+## Proximos pasos
+
+Agregar entrada de imagen del usuario: interpretar la situacion visual, combinarla con la descripcion textual y usar esa situacion normalizada para la busqueda documental en Chroma.
