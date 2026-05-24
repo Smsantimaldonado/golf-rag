@@ -138,6 +138,9 @@ def _split_pages_into_blocks(pages: Iterable[PageText]) -> List[_Block]:
             continue
         if _is_navigation_page(clean_page):
             continue
+        if _is_definitions_page(clean_page):
+            active_main_rule = None
+            active_heading = "Definiciones"
 
         starts = _find_block_starts(clean_page)
         if not starts:
@@ -228,6 +231,11 @@ def _is_navigation_page(text: str) -> bool:
     first_lines = "\n".join(text.splitlines()[:6])
     normalized = _strip_accents(first_lines)
     return "Contenidos" in normalized or "Indice Alfabetico" in normalized or normalized.startswith("Indice")
+
+
+def _is_definitions_page(text: str) -> bool:
+    first_lines = "\n".join(text.splitlines()[:5])
+    return "Definiciones" in _strip_accents(first_lines)
 
 
 def _marker_priority(marker_type: str) -> int:
