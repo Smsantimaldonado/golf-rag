@@ -26,6 +26,7 @@ PENALTY_AREA_RE = re.compile(
 )
 STROKE_DISTANCE_RE = re.compile(r"\b(?:golpe y distancia|perdida|perdido|fuera de limites|repetir|golpe anterior|provisional)\b", re.IGNORECASE)
 INSPECTION_RE = re.compile(r"\b(?:verificar|comprobar|identificar|levantar|no estoy seguro|duda|revisar)\b", re.IGNORECASE)
+REPLACE_RE = re.compile(r"\b(?:reponer|repuesta|reponerla|colocar|colocarla|marcar|marcada|movida|se movio|se movió)\b", re.IGNORECASE)
 QUERY_EXPANSIONS = [
     (
         re.compile(r"\baspersor(?:es)?\b", re.IGNORECASE),
@@ -38,6 +39,10 @@ QUERY_EXPANSIONS = [
     (
         re.compile(r"\b(?:arbol|arboles|arbusto|arbustos|planta|plantas|rama|ramas)\b", re.IGNORECASE),
         "objeto natural fijo en crecimiento condición normal del campo jugar como reposa bola injugable Regla 19.1 Regla 19.2 Regla 19.2a Regla 19.2b Regla 19.2c alivio con penalización",
+    ),
+    (
+        re.compile(r"\b(?:hueco|pozo|depresion|depresiones|lie malo|mal lie|enterrada|enterrado|injugable)\b", re.IGNORECASE),
+        "bola injugable Regla 19.1 Regla 19.2 Regla 19.2a Regla 19.2b Regla 19.2c golpe y distancia línea hacia atrás alivio lateral dos palos un golpe de penalización",
     ),
     (
         re.compile(r"\bbola equivocada\b", re.IGNORECASE),
@@ -59,6 +64,10 @@ Restricciones obligatorias:
 - No menciones modificaciones para jugadores con discapacidades o dispositivos de movilidad salvo que el usuario lo indique o pregunte por eso.
 - Si recuperás reglas tangenciales, no las cites salvo que sostengan directamente la decisión.
 - No le pidas al usuario que facilite texto de reglas o documentos. Tu única fuente documental es el CONTEXTO recuperado.
+- No hagas remisiones vacías como "tome alivio según la Regla 19" sin explicar qué debe hacer el jugador. Si mencionás una regla de alivio, resumí las opciones operativas disponibles en el CONTEXTO: dónde dropear/jugar, cuántas longitudes de palo corresponden y cuántos golpes de penalización tiene cada opción.
+- En la sección "Decisión", respondé como indicación práctica para reanudar el juego. Si hay alternativas de alivio, enumeralas con regla, penalidad y medida básica. Ejemplo: golpe y distancia; línea hacia atrás; alivio lateral de dos palos.
+- En la sección "Explicación", justificá esas opciones con la regla citada, sin repetir toda la mecánica si ya quedó clara en "Decisión".
+- No cites reglas de marcar, levantar, reponer o colocar la bola salvo que el usuario pregunte por ese procedimiento o que sean necesarias para la decisión principal. Para una consulta de alivio/injugable, enfocá la respuesta en opciones de alivio, penalidad y área de alivio.
 - En "Incertidumbre", mencioná solo datos faltantes necesarios para decidir la consulta. Si la decisión está suficientemente cubierta, escribí "No se advierte incertidumbre relevante con la información provista."
 - Si escribís "No se advierte incertidumbre relevante con la información provista.", no agregues ninguna otra frase en ese apartado.
 - No uses "Incertidumbre" para sugerir nuevas consultas, pedir más datos no necesarios o listar escenarios especiales no mencionados.
@@ -133,10 +142,13 @@ def retrieve(question: str, client: OpenAI, top_k: int = DEFAULT_TOP_K) -> List[
         chunks = [chunk for chunk in chunks if str(chunk.metadata.get("rule_number", "")) != "18.1"]
     if not INSPECTION_RE.search(normalized_question):
         chunks = [chunk for chunk in chunks if str(chunk.metadata.get("rule_number", "")) != "16.4"]
-    return expand_rule_references(collection=collection, question=retrieval_query, chunks=chunks)
+    chunks = expand_rule_references(collection=collection, question=retrieval_query, chunks=chunks)
+    if not REPLACE_RE.search(normalized_question):
+        chunks = [chunk for chunk in chunks if not str(chunk.metadata.get("rule_number", "")).startswith(("14.1", "14.2"))]
+    return chunks
 
 
-def expand_rule_references(collection, question: str, chunks: Sequence[RetrievedChunk], max_extra: int = 4) -> List[RetrievedChunk]:
+def expand_rule_references(collection, question: str, chunks: Sequence[RetrievedChunk], max_extra: int = 8) -> List[RetrievedChunk]:
     seen_ids = {chunk.id for chunk in chunks}
     references = _extract_rule_references(question + "\n" + "\n".join(chunk.text for chunk in chunks))
     expanded = list(chunks)
