@@ -1,28 +1,28 @@
 # golf-rag
 
-Asistente experto en reglas de golf con busqueda documental sobre PDFs locales.
+Asistente experto en reglas de golf con búsqueda documental sobre PDFs locales.
 
-El objetivo es construir un agente que responda consultas de texto e imagen sobre situaciones de juego. La respuesta debe estar fundamentada solo en los documentos provistos, citar siempre la regla aplicable y admitir incertidumbre cuando la imagen o la informacion recuperada no alcancen.
+El objetivo es construir un agente que responda consultas de texto e imagen sobre situaciones de juego. La respuesta debe estar fundamentada solo en los documentos provistos, citar siempre la regla aplicable y admitir incertidumbre cuando la imagen o la información recuperada no alcancen.
 
 ## Documentos fuente
 
-Los documentos iniciales estan en `data/`:
+Los documentos iniciales están en `data/`:
 
-- `GUIA_A_LAS_REGLAS_DE_GOLF.pdf`: guia rapida de reglas.
+- `GUIA_A_LAS_REGLAS_DE_GOLF.pdf`: guía rápida de reglas.
 - `Reglas_de_Golf.pdf`: libro de reglas propiamente dicho.
 
-Estos PDFs pueden reemplazarse o ampliarse en el futuro. Despues de cualquier cambio documental hay que volver a ejecutar la ingesta.
+Estos PDFs pueden reemplazarse o ampliarse en el futuro. Después de cualquier cambio documental hay que volver a ejecutar la ingesta.
 
 ## Flujo previsto
 
-1. Extraer texto por pagina desde los PDFs.
-2. Crear chunks documentales con metadatos de fuente, pagina y numero de regla.
+1. Extraer texto por página desde los PDFs.
+2. Crear chunks documentales con metadatos de fuente, página y número de regla.
 3. Generar embeddings reales para esos chunks.
 4. Guardar los chunks y embeddings en una base vectorial persistente.
 5. Recibir consulta de usuario en texto, imagen o ambos.
-6. Interpretar la situacion visible y textual.
+6. Interpretar la situación visible y textual.
 7. Buscar reglas e interpretaciones relevantes en la base documental.
-8. Responder con regla citada, decision y explicacion.
+8. Responder con regla citada, decisión y explicación.
 
 El agente no debe usar conocimiento externo para decidir reglas. Si no encuentra sustento suficiente en los documentos, debe decirlo.
 
@@ -65,7 +65,7 @@ CHROMA_PERSIST_DIR=vectordb/chroma
 CHROMA_COLLECTION_NAME=golf_rules
 ```
 
-No commitear `.env`; ya esta ignorado por Git.
+No commitear `.env`; ya está ignorado por Git.
 
 ## Ingesta textual
 
@@ -81,7 +81,7 @@ El resultado se escribe en:
 vectordb/chunks.jsonl
 ```
 
-Cada linea contiene:
+Cada línea contiene:
 
 - `id`
 - `text`
@@ -92,13 +92,13 @@ Cada linea contiene:
 - `metadata.rule_number`
 - `metadata.chunk_type`
 - `metadata.has_visual_context`
-- `metadata.visual_assets`, cuando el chunk esta asociado a una pagina visual
+- `metadata.visual_assets`, cuando el chunk está asociado a una página visual
 
 ## Ingesta visual
 
-Algunas reglas contienen diagramas o ilustraciones que explican areas de alivio, puntos de referencia, bunkers, greens, areas de penalizacion u otras situaciones visuales.
+Algunas reglas contienen diagramas o ilustraciones que explican áreas de alivio, puntos de referencia, bunkers, greens, áreas de penalización u otras situaciones visuales.
 
-Primero se renderizan las paginas candidatas y se crea un manifiesto:
+Primero se renderizan las páginas candidatas y se crea un manifiesto:
 
 ```powershell
 python ingest\pdf_visuals.py
@@ -111,7 +111,7 @@ vectordb/pdf_visuals.jsonl
 vectordb/page_images/
 ```
 
-Luego, cuando se vuelve a ejecutar `chunking.py`, los chunks que cruzan esas paginas quedan enlazados con los assets visuales.
+Luego, cuando se vuelve a ejecutar `chunking.py`, los chunks que cruzan esas páginas quedan enlazados con los assets visuales.
 
 Opcionalmente, una vez configurado `.env` con `OPENAI_API_KEY` y, si se desea, `OPENAI_VISION_MODEL`, se pueden generar descripciones visuales preprocesadas:
 
@@ -143,9 +143,9 @@ El script:
 
 - lee `vectordb/chunks.jsonl`;
 - genera embeddings con `OPENAI_EMBEDDING_MODEL`;
-- crea o reemplaza la coleccion `CHROMA_COLLECTION_NAME`;
+- crea o reemplaza la colección `CHROMA_COLLECTION_NAME`;
 - guarda la base en `CHROMA_PERSIST_DIR`;
-- preserva metadatos citables como regla, fuente, paginas y contexto visual.
+- preserva metadatos citables como regla, fuente, páginas y contexto visual.
 
 Para una prueba chica:
 
@@ -153,14 +153,12 @@ Para una prueba chica:
 python ingest\build_vector_db.py --limit 5
 ```
 
-## Proximos pasos
-
 ## Consulta textual MVP
 
 Hacer una consulta textual contra Chroma y generar una respuesta fundada:
 
 ```powershell
-python agent\query_agent.py "Mi bola esta injugable dentro de un bunker. Puedo dropear fuera?"
+python agent\query_agent.py "Mi bola está injugable dentro de un bunker. ¿Puedo dropear fuera?"
 ```
 
 Para inspeccionar los chunks recuperados:
@@ -172,10 +170,10 @@ python agent\query_agent.py "Mi consulta" --show-context
 La respuesta debe seguir este formato:
 
 - Regla citada
-- Decision
-- Explicacion
+- Decisión
+- Explicación
 - Incertidumbre
 
-## Proximos pasos
+## Próximos pasos
 
-Agregar entrada de imagen del usuario: interpretar la situacion visual, combinarla con la descripcion textual y usar esa situacion normalizada para la busqueda documental en Chroma.
+Agregar entrada de imagen del usuario: interpretar la situación visual, combinarla con la descripción textual y usar esa situación normalizada para la búsqueda documental en Chroma.
