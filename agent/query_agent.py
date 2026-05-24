@@ -5,6 +5,7 @@ import argparse
 from dataclasses import dataclass
 import os
 import re
+import unicodedata
 from typing import Dict, List, Sequence
 
 import chromadb
@@ -19,27 +20,64 @@ DEFAULT_COLLECTION = "golf_rules"
 DEFAULT_TOP_K = 8
 RULE_REFERENCE_RE = re.compile(r"\b(?:Regla\s+)?(\d{1,2}\.\d{1,2}[a-z]?)\b", re.IGNORECASE)
 SPECIAL_MODIFICATION_RE = re.compile(r"\b(?:discapacidad|discapacidades|movilidad|ruedas|silla)\b", re.IGNORECASE)
+PENALTY_AREA_RE = re.compile(
+    r"\b(?:area de penalizacion|area penalizacion|penalizacion roja|penalizacion amarilla|estaca roja|estacas rojas|estaca amarilla|estacas amarillas|agua|lago|arroyo|zanja)\b",
+    re.IGNORECASE,
+)
+STROKE_DISTANCE_RE = re.compile(r"\b(?:golpe y distancia|perdida|perdido|fuera de limites|repetir|golpe anterior|provisional)\b", re.IGNORECASE)
+INSPECTION_RE = re.compile(r"\b(?:verificar|comprobar|identificar|levantar|no estoy seguro|duda|revisar)\b", re.IGNORECASE)
+QUERY_EXPANSIONS = [
+    (
+        re.compile(r"\baspersor(?:es)?\b", re.IGNORECASE),
+        "obstruccion inamovible condicion anormal del campo Regla 16.1 punto mas cercano de alivio total alivio sin penalizacion",
+    ),
+    (
+        re.compile(r"\b(?:rastrillo|rastrillos|manguera|mangueras|botella|botellas|toalla|toallas)\b", re.IGNORECASE),
+        "obstruccion movible Regla 15.2 alivio sin penalizacion quitar obstruccion movible",
+    ),
+    (
+        re.compile(r"\b(?:arbol|arboles|arbusto|arbustos|planta|plantas|rama|ramas)\b", re.IGNORECASE),
+        "objeto natural fijo en crecimiento condicion normal del campo jugar como reposa bola injugable Regla 19.1 Regla 19.2 Regla 19.2a Regla 19.2b Regla 19.2c alivio con penalizacion",
+    ),
+    (
+        re.compile(r"\bbola equivocada\b", re.IGNORECASE),
+        "Regla 6.3c bola equivocada juego por golpes penalizacion general dos golpes corregir error",
+    ),
+]
 
 
 SYSTEM_PROMPT = """Sos un asistente experto en Reglas de Golf.
 
 Restricciones obligatorias:
-- Respondé solo con la evidencia documental provista en CONTEXTO.
+- Responde solo con la evidencia documental provista en CONTEXTO.
 - No uses conocimiento externo ni memoria general del modelo.
-- Si el contexto no alcanza para decidir, decí que no se puede determinar con los documentos recuperados.
-- Citá siempre número de regla cuando exista.
-- Si hay incertidumbre factual, indicala explícitamente.
+- Si el contexto no alcanza para decidir, deci que no se puede determinar con los documentos recuperados.
+- Cita siempre numero de regla cuando exista.
+- Si hay incertidumbre factual, indicala explicitamente.
 - No inventes reglas, penalizaciones, procedimientos ni excepciones.
-- Da primero la regla general aplicable. Mencioná excepciones o modificaciones especiales solo si el usuario las pregunta o si son necesarias para evitar una respuesta engañosa.
+- Da primero la regla general aplicable. Menciona excepciones o modificaciones especiales solo si el usuario las pregunta o si son necesarias para evitar una respuesta enganosa.
 - No menciones modificaciones para jugadores con discapacidades o dispositivos de movilidad salvo que el usuario lo indique o pregunte por eso.
-- Si recuperás reglas tangenciales, no las cites salvo que sostengan directamente la decisión.
+- Si recuperas reglas tangenciales, no las cites salvo que sostengan directamente la decision.
 - No le pidas al usuario que facilite texto de reglas o documentos. Tu unica fuente documental es el CONTEXTO recuperado.
-- En "Incertidumbre", mencioná solo datos faltantes necesarios para decidir la consulta. Si la decisión está suficientemente cubierta, escribí "No se advierte incertidumbre relevante con la información provista."
+- En "Incertidumbre", menciona solo datos faltantes necesarios para decidir la consulta. Si la decision esta suficientemente cubierta, escribi "No se advierte incertidumbre relevante con la informacion provista."
+- Si escribis "No se advierte incertidumbre relevante con la informacion provista.", no agregues ninguna otra frase en ese apartado.
+- No uses "Incertidumbre" para sugerir nuevas consultas, pedir mas datos no necesarios o listar escenarios especiales no mencionados.
+
+Presunciones operativas para evitar sobre-incertidumbre:
+- No conviertas excepciones no mencionadas en incertidumbre. Si el usuario no menciona agua, agua temporal, bola moviendose en agua, bunker, area de penalizacion, fuera de limites, green, condicion anormal, regla local o modalidad especial, no agregues esas posibilidades en "Incertidumbre".
+- Tampoco menciones esas excepciones como "aclaracion" o "salvedad" si no fueron mencionadas por el usuario y no son necesarias para contestar la pregunta.
+- Si el usuario no dice que la bola esta en bunker, area de penalizacion, green u otra area especial, asumi que esta en el area general.
+- Si el usuario no dice que existe una condicion anormal del campo, interferencia, obstruccion, agua temporal, terreno en reparacion o animal peligroso, asumi una condicion normal del juego.
+- Trata objetos comunes con sentido golfistico: un rastrillo, botella, toalla o manguera suelta suelen ser obstrucciones movibles; un aspersor, camino artificial, drenaje o tapa fija suelen ser obstrucciones inamovibles; arboles, arbustos, plantas y ramas que crecen forman parte natural del campo y no son obstrucciones.
+- Si una palabra comun tiene una categoria evidente en golf, usala. Por ejemplo, "aspersor" implica obstruccion inamovible salvo que el usuario diga que esta suelto o movible; "arbol" implica objeto natural/condicion normal del campo salvo que el usuario diga que es una estaca, tutor artificial u objeto artificial.
+- Si el usuario dice que la bola "queda en", "esta en", "reposa en", "queda sobre", "esta sobre", "reposa sobre", "queda pegada a" o "esta pegada a" un objeto, asumi que ese objeto interfiere con el lie/reposo de la bola. No trates ese caso como mera interferencia con la linea de juego salvo que el usuario lo diga.
+- Solo declara incertidumbre cuando un dato cambia materialmente la decision principal, no cuando solo existe una excepcion remota no mencionada.
+- No uses "Incertidumbre" para repetir las presunciones operativas aplicadas. Si aplicaste una presuncion normal y la decision queda cubierta, escribi simplemente que no hay incertidumbre relevante.
 
 Formato obligatorio:
 Regla citada:
-Decisión:
-Explicación:
+Decision:
+Explicacion:
 Incertidumbre:
 """
 
@@ -68,7 +106,8 @@ def retrieve(question: str, client: OpenAI, top_k: int = DEFAULT_TOP_K) -> List[
     persist_dir = os.getenv("CHROMA_PERSIST_DIR") or DEFAULT_CHROMA_DIR
     collection_name = os.getenv("CHROMA_COLLECTION_NAME") or DEFAULT_COLLECTION
 
-    query_embedding = client.embeddings.create(model=embedding_model, input=question).data[0].embedding
+    retrieval_query = build_retrieval_query(question)
+    query_embedding = client.embeddings.create(model=embedding_model, input=retrieval_query).data[0].embedding
     collection = chromadb.PersistentClient(path=persist_dir).get_collection(collection_name)
     result = collection.query(
         query_embeddings=[query_embedding],
@@ -87,7 +126,13 @@ def retrieve(question: str, client: OpenAI, top_k: int = DEFAULT_TOP_K) -> List[
     ]
     if not SPECIAL_MODIFICATION_RE.search(question):
         chunks = [chunk for chunk in chunks if not str(chunk.metadata.get("rule_number", "")).startswith("25.")]
-    return expand_rule_references(collection=collection, question=question, chunks=chunks)
+    if not PENALTY_AREA_RE.search(question):
+        chunks = [chunk for chunk in chunks if not str(chunk.metadata.get("rule_number", "")).startswith("17.")]
+    if not STROKE_DISTANCE_RE.search(question):
+        chunks = [chunk for chunk in chunks if str(chunk.metadata.get("rule_number", "")) != "18.1"]
+    if not INSPECTION_RE.search(question):
+        chunks = [chunk for chunk in chunks if str(chunk.metadata.get("rule_number", "")) != "16.4"]
+    return expand_rule_references(collection=collection, question=retrieval_query, chunks=chunks)
 
 
 def expand_rule_references(collection, question: str, chunks: Sequence[RetrievedChunk], max_extra: int = 4) -> List[RetrievedChunk]:
@@ -118,6 +163,18 @@ def _extract_rule_references(text: str) -> List[str]:
             references.append(rule_number)
             seen.add(rule_number)
     return references
+
+
+def build_retrieval_query(question: str) -> str:
+    normalized_question = strip_accents(question)
+    additions = [expansion for pattern, expansion in QUERY_EXPANSIONS if pattern.search(normalized_question)]
+    if not additions:
+        return question
+    return question + "\n\nTerminos de recuperacion: " + " ".join(additions)
+
+
+def strip_accents(text: str) -> str:
+    return "".join(char for char in unicodedata.normalize("NFKD", text) if not unicodedata.combining(char))
 
 
 def generate_answer(client: OpenAI, question: str, context: str) -> str:
