@@ -49,6 +49,10 @@ QUERY_EXPANSIONS = [
         "jugar como reposa Regla 8.1a bola injugable Regla 19.1 Regla 19.2 Regla 19.2a Regla 19.2b Regla 19.2c golpe y distancia línea hacia atrás alivio lateral dos palos un golpe de penalización",
     ),
     (
+        re.compile(r"\b(?:hueco|pozo|depresion|depresiones|lie malo|mal lie|enterrada|enterrado|injugable)\b", re.IGNORECASE),
+        "bola injugable Regla 19.1 Regla 19.2 Regla 19.2a Regla 19.2b Regla 19.2c golpe y distancia línea hacia atrás alivio lateral dos palos un golpe de penalización",
+    ),
+    (
         re.compile(r"\bbola equivocada\b", re.IGNORECASE),
         "Regla 6.3c bola equivocada juego por golpes penalización general dos golpes corregir error",
     ),
@@ -70,7 +74,10 @@ Restricciones obligatorias:
 - No le pidas al usuario que facilite texto de reglas o documentos. Tu única fuente documental es el CONTEXTO recuperado.
 - No hagas remisiones vacías como "tome alivio según la Regla 19" sin explicar qué debe hacer el jugador. Si mencionás una regla de alivio, resumí las opciones operativas disponibles en el CONTEXTO: dónde dropear/jugar, cuántas longitudes de palo corresponden y cuántos golpes de penalización tiene cada opción.
 - En la sección "Decisión", respondé como indicación práctica para reanudar el juego. Si hay alternativas de alivio, enumeralas con regla, penalidad y medida básica. Ejemplo: golpe y distancia; línea hacia atrás; alivio lateral de dos palos.
+<<<<<<< HEAD
 - En consultas de lie malo, hueco, árbol o bola injugable, mencioná primero la opción de jugar la bola como reposa sin penalidad cuando el CONTEXTO la sostenga, y luego las alternativas de alivio con penalidad.
+=======
+>>>>>>> 1319a48d9b4f6521c1c43966f7dd668a7eabec15
 - En la sección "Explicación", justificá esas opciones con la regla citada, sin repetir toda la mecánica si ya quedó clara en "Decisión".
 - No cites reglas de marcar, levantar, reponer o colocar la bola salvo que el usuario pregunte por ese procedimiento o que sean necesarias para la decisión principal. Para una consulta de alivio/injugable, enfocá la respuesta en opciones de alivio, penalidad y área de alivio.
 - En "Incertidumbre", mencioná solo datos faltantes necesarios para decidir la consulta. Si la decisión está suficientemente cubierta, escribí "No se advierte incertidumbre relevante con la información provista."
