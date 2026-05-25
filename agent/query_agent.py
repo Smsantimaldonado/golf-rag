@@ -18,6 +18,7 @@ DEFAULT_ANSWER_MODEL = "gpt-5-mini"
 DEFAULT_CHROMA_DIR = "vectordb/chroma"
 DEFAULT_COLLECTION = "golf_rules"
 DEFAULT_TOP_K = 8
+MAX_CONVERSATION_USER_MESSAGES = 3
 RULE_REFERENCE_RE = re.compile(r"\b(?:Regla\s+)?(\d{1,2}\.\d{1,2}[a-z]?)\b", re.IGNORECASE)
 SPECIAL_MODIFICATION_RE = re.compile(r"\b(?:discapacidad|discapacidades|movilidad|ruedas|silla)\b", re.IGNORECASE)
 PENALTY_AREA_RE = re.compile(
@@ -74,10 +75,7 @@ Restricciones obligatorias:
 - No le pidas al usuario que facilite texto de reglas o documentos. Tu única fuente documental es el CONTEXTO recuperado.
 - No hagas remisiones vacías como "tome alivio según la Regla 19" sin explicar qué debe hacer el jugador. Si mencionás una regla de alivio, resumí las opciones operativas disponibles en el CONTEXTO: dónde dropear/jugar, cuántas longitudes de palo corresponden y cuántos golpes de penalización tiene cada opción.
 - En la sección "Decisión", respondé como indicación práctica para reanudar el juego. Si hay alternativas de alivio, enumeralas con regla, penalidad y medida básica. Ejemplo: golpe y distancia; línea hacia atrás; alivio lateral de dos palos.
-<<<<<<< HEAD
 - En consultas de lie malo, hueco, árbol o bola injugable, mencioná primero la opción de jugar la bola como reposa sin penalidad cuando el CONTEXTO la sostenga, y luego las alternativas de alivio con penalidad.
-=======
->>>>>>> 1319a48d9b4f6521c1c43966f7dd668a7eabec15
 - En la sección "Explicación", justificá esas opciones con la regla citada, sin repetir toda la mecánica si ya quedó clara en "Decisión".
 - No cites reglas de marcar, levantar, reponer o colocar la bola salvo que el usuario pregunte por ese procedimiento o que sean necesarias para la decisión principal. Para una consulta de alivio/injugable, enfocá la respuesta en opciones de alivio, penalidad y área de alivio.
 - En "Incertidumbre", mencioná solo datos faltantes necesarios para decidir la consulta. Si la decisión está suficientemente cubierta, escribí "No se advierte incertidumbre relevante con la información provista."
@@ -94,6 +92,12 @@ Presunciones operativas para evitar sobre-incertidumbre:
 - Si el usuario dice que la bola "queda en", "está en", "reposa en", "queda sobre", "está sobre", "reposa sobre", "queda pegada a" o "está pegada a" un objeto, asumí que ese objeto interfiere con el lie/reposo de la bola. No trates ese caso como mera interferencia con la línea de juego salvo que el usuario lo diga.
 - Solo declarás incertidumbre cuando un dato cambia materialmente la decisión principal, no cuando solo existe una excepción remota no mencionada.
 - No uses "Incertidumbre" para repetir las presunciones operativas aplicadas. Si aplicaste una presunción normal y la decisión queda cubierta, escribí simplemente que no hay incertidumbre relevante.
+
+Mini conversación:
+- Puede haber hasta 3 mensajes del usuario sobre un mismo caso. Usá esos mensajes solo para reconstruir los hechos y la intención de la consulta, nunca como fuente de reglas.
+- Si el usuario agrega información, integrala al caso antes de decidir.
+- Si el usuario corrige o contradice algo anterior, priorizá el dato más reciente.
+- Si el usuario dice que la respuesta anterior no le satisface, revisá si faltó una decisión práctica, penalidad, medida de alivio o regla citada, pero seguí respondiendo solo con el CONTEXTO.
 
 Formato obligatorio:
 Decisión:
@@ -120,6 +124,37 @@ def answer_question(question: str, top_k: int = DEFAULT_TOP_K, show_context: boo
     if not show_context:
         return answer
     return answer + "\n\n--- Contexto recuperado ---\n" + context
+
+
+def answer_conversation(user_messages: Sequence[str], top_k: int = DEFAULT_TOP_K, show_context: bool = False) -> str:
+    question = build_conversation_question(user_messages)
+    return answer_question(question=question, top_k=top_k, show_context=show_context)
+
+
+def build_conversation_question(user_messages: Sequence[str]) -> str:
+    cleaned_messages = [message.strip() for message in user_messages if message and message.strip()]
+    if not cleaned_messages:
+        raise ValueError("Provide at least one user message.")
+    if len(cleaned_messages) > MAX_CONVERSATION_USER_MESSAGES:
+        raise ValueError(f"A case can have at most {MAX_CONVERSATION_USER_MESSAGES} user messages.")
+    if len(cleaned_messages) == 1:
+        return cleaned_messages[0]
+
+    lines = [
+        "CASO EN MINI CONVERSACIÓN:",
+        "Los siguientes mensajes pertenecen a un mismo caso. Usalos para consolidar los hechos antes de responder.",
+        "Si hay contradicciones, priorizá el mensaje más reciente del usuario.",
+        "",
+    ]
+    for index, message in enumerate(cleaned_messages, start=1):
+        lines.append(f"Mensaje {index} del usuario: {message}")
+    lines.extend(
+        [
+            "",
+            "Respondé la consulta considerando el caso completo y la última intervención del usuario.",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def retrieve(question: str, client: OpenAI, top_k: int = DEFAULT_TOP_K) -> List[RetrievedChunk]:
@@ -274,6 +309,13 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Ask a text question to the golf rules RAG agent.")
     parser.add_argument("question", nargs="*", help="Question to answer. If omitted, --question is used.")
     parser.add_argument("--question", dest="question_option", default=None)
+    parser.add_argument(
+        "--message",
+        dest="messages",
+        action="append",
+        default=None,
+        help="User message for a mini conversation. Repeat up to 3 times.",
+    )
     parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
     parser.add_argument("--show-context", action="store_true")
     return parser.parse_args()
@@ -281,7 +323,12 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = _parse_args()
-    question = args.question_option or " ".join(args.question).strip()
-    if not question:
-        raise SystemExit("Provide a question as an argument or with --question.")
-    print(answer_question(question=question, top_k=args.top_k, show_context=args.show_context))
+    if args.messages:
+        if args.question_option or args.question:
+            raise SystemExit("Use either --message for a mini conversation or a single question, not both.")
+        print(answer_conversation(user_messages=args.messages, top_k=args.top_k, show_context=args.show_context))
+    else:
+        question = args.question_option or " ".join(args.question).strip()
+        if not question:
+            raise SystemExit("Provide a question as an argument, with --question, or with repeated --message values.")
+        print(answer_question(question=question, top_k=args.top_k, show_context=args.show_context))
