@@ -63,6 +63,11 @@ OPENAI_VISION_MODEL=gpt-5-mini
 OPENAI_ANSWER_MODEL=gpt-5-mini
 CHROMA_PERSIST_DIR=vectordb/chroma
 CHROMA_COLLECTION_NAME=golf_rules
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_DB_URL=
+APP_PASSCODE=
 ```
 
 No commitear `.env`; ya está ignorado por Git.
@@ -153,6 +158,40 @@ Para una prueba chica:
 python ingest\build_vector_db.py --limit 5
 ```
 
+## Supabase pgvector
+
+Supabase es el backend recomendado para la primera webapp deployable en Vercel. Chroma puede seguir usándose localmente, pero Vercel consultará Supabase.
+
+1. Crear un proyecto en Supabase.
+2. Abrir el SQL Editor y ejecutar:
+
+```text
+supabase/schema.sql
+```
+
+3. Completar `.env` con:
+
+```env
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_DB_URL=
+```
+
+`SUPABASE_DB_URL` es el connection string de Postgres. Se usa solo para la carga local de chunks. `SUPABASE_SERVICE_ROLE_KEY` se usa del lado servidor en la webapp y no debe exponerse en el cliente.
+
+4. Cargar los chunks en Supabase:
+
+```powershell
+python ingest\load_supabase.py --reset
+```
+
+Para una prueba chica:
+
+```powershell
+python ingest\load_supabase.py --limit 5 --reset
+```
+
 ## Consulta textual MVP
 
 Hacer una consulta textual contra Chroma y generar una respuesta fundada:
@@ -174,6 +213,37 @@ La respuesta debe seguir este formato:
 - Explicación
 - Incertidumbre
 
+## Webapp MVP
+
+La webapp está en `web/` y usa Next.js con un endpoint server-side `POST /api/ask`.
+
+Configurar `web/.env.local` con:
+
+```env
+OPENAI_API_KEY=
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_ANSWER_MODEL=gpt-5-mini
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+APP_PASSCODE=
+```
+
+Instalar y correr:
+
+```powershell
+cd web
+npm install
+npm run dev
+```
+
+Abrir:
+
+```text
+http://localhost:3000
+```
+
+La conversación por caso admite hasta 3 mensajes del usuario. La webapp usa esos mensajes para consolidar los hechos, pero las reglas siguen saliendo solo del contexto recuperado desde Supabase.
+
 ## Próximos pasos
 
-Agregar entrada de imagen del usuario: interpretar la situación visual, combinarla con la descripción textual y usar esa situación normalizada para la búsqueda documental en Chroma.
+Agregar entrada de imagen del usuario: interpretar la situación visual, combinarla con la descripción textual y usar esa situación normalizada para la búsqueda documental en Supabase.

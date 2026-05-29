@@ -7,3 +7,7 @@ __pycache__/
 vectordb/chroma/
 vectordb/page_images/
 vectordb/page_images_preview/
+web/node_modules/
+web/.next/
+web/out/
+web/.env.local

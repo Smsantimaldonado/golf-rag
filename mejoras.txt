@@ -1,0 +1,10 @@
+algunas mejoras necesarias:
+- el formato de respuesta que está estipulado solo es obligatorio en la primer respuesta. una vez que se inicia la 'conversación' (osea a partir del 2° mensaje del usuario), se debe responder lo que pide el usuario concretamente (lo que no significa incompleto)
+- en alguna ocasión, me da 3 opciones (correctas) para resolver la situación y me agrega una cuarta que dice: Si la bola estuviera en un área de penalización, las opciones anteriores no aplican; ver Regla xx (solo opciones de área de penalización según Regla xx). Si en la pregunta inicial del usuario no se aclaró algo sobre algún área de penalización, no se debería incluir esa opción ni hacer mención alguna
+- en un caso me respondió que la bola se puede jugar como reposa sin penalidad pero eso no se puede definitivamente (caso del aspersor). además me dió la opción de la regla 16.1
+pregunté 'pegué la bola, la ví caer en el medio del fairway y cuando llegué, no la encuentro'. me citó opciones correctas y entre ellas las 2 siguientes:
+
+'Si usted cree que la bola puede estar perdida o fuera de límites, debe jugar una bola provisional y anunciarla antes de jugarla; la provisional se convierte en la bola en juego si la original queda perdida (Regla 18.3c).'
+'Si la bola no se encuentra e identifica dentro de los 3 minutos desde que usted o su caddie comienza la búsqueda, la bola es “perdida” y deberá proceder según la Regla aplicable a bola perdida (jugar bajo la penalidad de golpe y distancia; ver Regla 18.1 según el contexto provisto).'
+
+Quiero que, en lugar de decir continue jugando de acuerdo a la regla xx, que me indique directamente como seguir jugando basandose en esa regla. Esta corrección quiero que sea general para cualquier tipo de respuesta, no solo para el caso de bola perdida. Las respuestas deben estar más orientadas a decirle al jugador qué es lo que debe hacer ante una situación y cómo hacerlo
