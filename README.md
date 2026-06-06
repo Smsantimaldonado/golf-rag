@@ -213,7 +213,16 @@ La respuesta debe seguir este formato:
 - Explicación
 - Incertidumbre
 
-## Webapp MVP
+## Consulta textual WebApp MVP
+
+La respuesta debe seguir este formato:
+
+- Decisión
+- Explicación
+- Regla citada
+- Incertidumbre
+
+La conversación por caso admite hasta 3 mensajes del usuario. La WebApp usa esos mensajes para consolidar los hechos, pero las reglas siguen saliendo solo del contexto recuperado desde Supabase.
 
 La webapp está en `web/` y usa Next.js con un endpoint server-side `POST /api/ask`.
 
@@ -242,7 +251,7 @@ Abrir:
 http://localhost:3000
 ```
 
-La conversación por caso admite hasta 3 mensajes del usuario. La webapp usa esos mensajes para consolidar los hechos, pero las reglas siguen saliendo solo del contexto recuperado desde Supabase.
+
 
 ## Próximos pasos
 
