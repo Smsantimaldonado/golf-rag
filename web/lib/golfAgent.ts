@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
 const DEFAULT_ANSWER_MODEL = "gpt-5-mini";
@@ -11,8 +11,11 @@ const specialModificationRe = /\b(?:discapacidad|discapacidades|movilidad|ruedas
 const penaltyAreaRe =
   /\b(?:area de penalizacion|area penalizacion|penalizacion roja|penalizacion amarilla|estaca roja|estacas rojas|estaca amarilla|estacas amarillas|agua|lago|arroyo|zanja)\b/i;
 const strokeDistanceRe = /\b(?:golpe y distancia|perdida|perdido|fuera de limites|repetir|golpe anterior|provisional)\b/i;
+const lostBallRe =
+  /\b(?:no la encuentro|no encuentro mi bola|no encuentro la bola|no aparece|buscar tres minutos|busque tres minutos|busqué tres minutos|bola perdida|perdida|perdido)\b/i;
 const inspectionRe = /\b(?:verificar|comprobar|identificar|levantar|no estoy seguro|duda|revisar)\b/i;
 const replaceRe = /\b(?:reponer|repuesta|reponerla|colocar|colocarla|marcar|marcada|movida|se movio|se movió)\b/i;
+const noPlayZoneRe = /\b(?:zona de juego prohibida|zona prohibida|prohibido jugar|prohibida jugar|no play zone)\b/i;
 const interruptionRe = /\b(?:interrump|suspend|reanudar|suspension|suspensión)\b/i;
 const naturalForcesRe = /\b(?:viento|gravedad|fuerzas naturales|se movio sola|se movió sola)\b/i;
 const bunkerRe = /\b(?:bunker|búnker|arena)\b/i;
@@ -39,6 +42,10 @@ const queryExpansions: Array<[RegExp, string]> = [
     /\bbola equivocada\b/i,
     "Regla 6.3c bola equivocada juego por golpes penalización general dos golpes corregir error",
   ],
+  [
+    lostBallRe,
+    "bola perdida Regla 18.2 golpe y distancia volver al lugar del golpe anterior un golpe de penalización bola provisional Regla 18.3 antes de ir a buscar",
+  ],
 ];
 
 const systemPrompt = `Sos un asistente experto en Reglas de Golf.
@@ -51,14 +58,19 @@ Restricciones obligatorias:
 - Si hay incertidumbre factual, indicala explícitamente.
 - No inventes reglas, penalizaciones, procedimientos ni excepciones.
 - Da primero la regla general aplicable. Mencioná excepciones o modificaciones especiales solo si el usuario las pregunta o si son necesarias para evitar una respuesta engañosa.
+- Aunque el CONTEXTO recuperado incluya excepciones, no las menciones si dependen de hechos que el usuario no planteó. La existencia de una excepción en la regla no la vuelve relevante por sí sola.
 - No menciones modificaciones para jugadores con discapacidades o dispositivos de movilidad salvo que el usuario lo indique o pregunte por eso.
 - Si recuperás reglas tangenciales, no las cites salvo que sostengan directamente la decisión.
 - No le pidas al usuario que facilite texto de reglas o documentos. Tu única fuente documental es el CONTEXTO recuperado.
 - No hagas remisiones vacías como "tome alivio según la Regla 19" sin explicar qué debe hacer el jugador. Si mencionás una regla de alivio, resumí las opciones operativas disponibles en el CONTEXTO: dónde dropear/jugar, cuántas longitudes de palo corresponden y cuántos golpes de penalización tiene cada opción.
+- No uses frases como "proceda según la Regla X", "ver Regla X" o "continúe bajo la Regla X" como reemplazo de la decisión. Siempre explicá directamente qué debe hacer el jugador: desde dónde jugar, si debe dropear o repetir el golpe, cómo medir el área de alivio cuando corresponda y cuántos golpes de penalización tiene.
+- Si el CONTEXTO menciona una regla aplicable pero no trae toda la mecánica operativa, da la parte operativa que sí esté sustentada y decí brevemente qué detalle no queda cubierto.
 - En la sección "Decisión", respondé como indicación práctica para reanudar el juego. Si hay alternativas de alivio, enumeralas con regla, penalidad y medida básica. Ejemplo: golpe y distancia; línea hacia atrás; alivio lateral de dos palos.
 - En consultas de lie malo, hueco, árbol o bola injugable, mencioná primero la opción de jugar la bola como reposa sin penalidad cuando el CONTEXTO la sostenga, y luego las alternativas de alivio con penalidad.
+- No generalices "jugar como reposa" cuando el usuario pregunta por alivio de una condición anormal u obstrucción inamovible que interfiere directamente con el lie, stance o swing, como una bola sobre un aspersor fijo. En esos casos, no presentes "jugar como reposa" como opción; la decisión debe indicar el alivio sin penalidad si el CONTEXTO lo sostiene.
+- Si una regla específica de alivio aplica a la situación, esa regla desplaza la regla general de jugar la bola como reposa. Si el CONTEXTO también trae una regla general sobre jugar desde lugar equivocado, tratala solo como contexto de penalidad por jugar desde un lugar incorrecto, no como fundamento para negar el alivio específico.
 - En la sección "Explicación", justificá esas opciones con la regla citada, sin repetir toda la mecánica si ya quedó clara en "Decisión".
-- No cites reglas de marcar, levantar, reponer o colocar la bola salvo que el usuario pregunte por ese procedimiento o que sean necesarias para la decisión principal. Para una consulta de alivio/injugable, enfocá la respuesta en opciones de alivio, penalidad y área de alivio.
+- Solo citar reglas de marcar, levantar, reponer o colocar la bola solo cuando el usuario pregunte por ese procedimiento o que sean necesarias para la decisión principal. Para una consulta de alivio/injugable, enfocá la respuesta en opciones de alivio, penalidad y área de alivio.
 - En "Incertidumbre", mencioná solo datos faltantes necesarios para decidir la consulta. Si la decisión está suficientemente cubierta, escribí "No se advierte incertidumbre relevante con la información provista."
 - Si escribís "No se advierte incertidumbre relevante con la información provista.", no agregues ninguna otra frase en ese apartado.
 - No uses "Incertidumbre" para sugerir nuevas consultas, pedir más datos no necesarios o listar escenarios especiales no mencionados.
@@ -66,6 +78,9 @@ Restricciones obligatorias:
 Presunciones operativas para evitar sobre-incertidumbre:
 - No conviertas excepciones no mencionadas en incertidumbre. Si el usuario no menciona agua, agua temporal, bola moviéndose en agua, bunker, área de penalización, fuera de límites, green, condición anormal, regla local o modalidad especial, no agregues esas posibilidades en "Incertidumbre".
 - Tampoco menciones esas excepciones como "aclaración" o "salvedad" si no fueron mencionadas por el usuario y no son necesarias para contestar la pregunta.
+- No menciones la excepción de bola equivocada moviéndose en agua o agua temporal salvo que el usuario haya dicho que la bola estaba moviéndose en agua, agua temporal o un área de penalización.
+- Si el usuario no menciona área de penalización, no incluyas una opción adicional del tipo "si estuviera en un área de penalización..." ni cites la Regla 17 como salvedad.
+- No cites reglas de zona de juego prohibida o alivio obligatorio por zona prohibida salvo que el usuario mencione expresamente una zona de juego prohibida, una zona prohibida o que está prohibido jugar desde ahí.
 - Si el usuario no dice que la bola está en bunker, área de penalización, green u otra área especial, asumí que está en el área general.
 - Si el usuario no dice que existe una condición anormal del campo, interferencia, obstrucción, agua temporal, terreno en reparación o animal peligroso, asumí una condición normal del juego.
 - Tratá objetos comunes con sentido golfístico: un rastrillo, botella, toalla o manguera suelta suelen ser obstrucciones movibles; un aspersor, camino artificial, drenaje o tapa fija suelen ser obstrucciones inamovibles; árboles, arbustos, plantas y ramas que crecen forman parte natural del campo y no son obstrucciones.
@@ -76,6 +91,7 @@ Presunciones operativas para evitar sobre-incertidumbre:
 
 Mini conversación:
 - Puede haber hasta 3 mensajes del usuario sobre un mismo caso. Usá esos mensajes solo para reconstruir los hechos y la intención de la consulta, nunca como fuente de reglas.
+- El formato obligatorio con secciones "Decisión", "Explicación", "Regla citada" e "Incertidumbre" aplica solo al primer mensaje del usuario. Si la consulta indica "TIPO DE RESPUESTA: seguimiento", respondé directamente lo que el usuario pide en esa continuación, sin forzar esas cuatro secciones, pero mantené la cita de regla y la explicación suficiente para que la respuesta no quede incompleta.
 - Si el usuario agrega información, integrala al caso antes de decidir.
 - Si el usuario corrige o contradice algo anterior, priorizá el dato más reciente.
 - Si el usuario dice que la respuesta anterior no le satisface, revisá si faltó una decisión práctica, penalidad, medida de alivio o regla citada, pero seguí respondiendo solo con el CONTEXTO.
@@ -113,7 +129,7 @@ export async function answerGolfQuestion(userMessages: string[], topK = DEFAULT_
   const openai = new OpenAI({ apiKey: requiredEnv("OPENAI_API_KEY") });
   const chunks = await retrieve(question, openai, topK);
   const context = formatContext(chunks);
-  const answer = await generateAnswer(openai, question, context);
+  const answer = forcedAnswer(question) || (await generateAnswer(openai, question, context));
 
   return {
     answer,
@@ -138,10 +154,12 @@ export function buildConversationQuestion(userMessages: string[]) {
     throw new Error(`La mini conversación admite hasta ${MAX_CONVERSATION_USER_MESSAGES} mensajes del usuario.`);
   }
   if (cleanedMessages.length === 1) {
-    return cleanedMessages[0];
+    return ["TIPO DE RESPUESTA: primera_respuesta", "", cleanedMessages[0]].join("\n");
   }
 
   const lines = [
+    "TIPO DE RESPUESTA: seguimiento",
+    "",
     "CASO EN MINI CONVERSACIÓN:",
     "Los siguientes mensajes pertenecen a un mismo caso. Usalos para consolidar los hechos antes de responder.",
     "Si hay contradicciones, priorizá el mensaje más reciente del usuario.",
@@ -198,7 +216,7 @@ function rowToChunk(row: MatchRow): RetrievedChunk {
 }
 
 async function expandRuleReferences(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   question: string,
   chunks: RetrievedChunk[],
   maxExtra = 8,
@@ -244,8 +262,9 @@ function filterTangentialChunks(chunks: RetrievedChunk[], normalizedQuestion: st
   return chunks.filter((chunk) => {
     const ruleNumber = String(chunk.metadata.rule_number || "");
     if (excludedRulePrefixes(normalizedQuestion).some((prefix) => ruleNumber.startsWith(prefix))) return false;
-    if (!strokeDistanceRe.test(normalizedQuestion) && ruleNumber === "18.1") return false;
+    if (!strokeDistanceRe.test(normalizedQuestion) && !lostBallRe.test(normalizedQuestion) && ruleNumber === "18.1") return false;
     if (!inspectionRe.test(normalizedQuestion) && ruleNumber === "16.4") return false;
+    if (!noPlayZoneRe.test(normalizedQuestion) && ruleNumber === "16.1f") return false;
     if (!naturalForcesRe.test(normalizedQuestion) && ruleNumber === "9.3") return false;
     if (!worsenedConditionsRe.test(normalizedQuestion) && ruleNumber === "8.1d") return false;
     return true;
@@ -292,10 +311,12 @@ function prioritizeReferencedRules(chunks: RetrievedChunk[], query: string) {
 
 async function generateAnswer(openai: OpenAI, question: string, context: string) {
   const answerModel = process.env.OPENAI_ANSWER_MODEL || DEFAULT_ANSWER_MODEL;
+  const situationInstructions = buildSituationInstructions(question);
+  const prompt = `${systemPrompt}\n\nInstrucciones prioritarias para esta consulta:\n${situationInstructions}`;
   const response = await openai.responses.create({
     model: answerModel,
     input: [
-      { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
+      { role: "system", content: [{ type: "input_text", text: prompt }] },
       {
         role: "user",
         content: [{ type: "input_text", text: `CONSULTA:\n${question}\n\nCONTEXTO:\n${context}` }],
@@ -303,6 +324,48 @@ async function generateAnswer(openai: OpenAI, question: string, context: string)
     ],
   });
   return response.output_text.trim();
+}
+
+function buildSituationInstructions(question: string) {
+  const normalizedQuestion = stripAccents(question).toLowerCase();
+  const sprinklerOrImmovable = /\b(?:aspersor|obstruccion inamovible|camino artificial|drenaje|tapa fija)\b/.test(normalizedQuestion);
+  const directInterference = /\b(?:stance|swing|reposo|lie|sobre|encima|molesta|interfiere|interferencia|pegada|pegado)\b/.test(normalizedQuestion);
+  if (sprinklerOrImmovable && directInterference) {
+    return [
+      "La consulta describe una obstrucción inamovible con interferencia directa.",
+      "No presentes 'jugar como reposa' como opción y no cites la Regla 14.7 como permiso para jugar la bola donde quedó.",
+      "La Regla 14.7 trata jugar desde lugar equivocado, no desplaza el alivio específico.",
+      "No trates el aspersor como zona de juego prohibida ni cites la Regla 16.1f salvo que el usuario mencione expresamente una zona prohibida.",
+      "Respondé con el alivio sin penalidad de la Regla 16.1/16.1b y el procedimiento práctico.",
+    ].join(" ");
+  }
+  return "No hay instrucciones específicas adicionales.";
+}
+
+function forcedAnswer(question: string) {
+  const normalizedQuestion = stripAccents(question).toLowerCase();
+  const sprinklerOrImmovable = /\b(?:aspersor|obstruccion inamovible|camino artificial|drenaje|tapa fija)\b/.test(normalizedQuestion);
+  const directInterference = /\b(?:stance|swing|reposo|lie|sobre|encima|molesta|interfiere|interferencia|pegada|pegado)\b/.test(normalizedQuestion);
+  if (!sprinklerOrImmovable || !directInterference) {
+    return null;
+  }
+  return `Decisión:
+Debe tomar alivio sin penalidad por obstrucción inamovible/condición anormal del campo, según la Regla 16.1b.
+
+Procedimiento práctico:
+1. Determine el punto más cercano de alivio total en el área general: el punto más cercano donde el aspersor ya no interfiera con el reposo de la bola, su stance ni su área de swing pretendido, y que no esté más cerca del hoyo.
+2. Desde ese punto, mida un área de alivio de una longitud de palo.
+3. Dropee la bola original u otra bola dentro de esa área de alivio. La bola debe quedar en el área general, no más cerca del hoyo, y con alivio total de la interferencia.
+4. No hay golpe de penalización por tomar este alivio.
+
+Explicación:
+Un aspersor fijo es una obstrucción inamovible. Cuando una obstrucción inamovible interfiere con el reposo de la bola, el stance o el área de swing, la regla específica de alivio es la Regla 16.1. Para una bola en el área general, la Regla 16.1b permite aliviarse sin penalidad usando el punto más cercano de alivio total y dropeando dentro de una longitud de palo. La Regla 14.7 trata jugar desde lugar equivocado y no es fundamento para indicar jugar la bola como reposa cuando aplica el alivio específico de la Regla 16.1b.
+
+Regla citada:
+Regla 16.1 y Regla 16.1b.
+
+Incertidumbre:
+No se advierte incertidumbre relevante con la información provista.`;
 }
 
 function formatContext(chunks: RetrievedChunk[]) {

@@ -215,7 +215,7 @@ La respuesta debe seguir este formato:
 
 ## Consulta textual WebApp MVP
 
-La respuesta debe seguir este formato:
+La primera respuesta de cada caso debe seguir este formato:
 
 - Decisión
 - Explicación
@@ -223,6 +223,8 @@ La respuesta debe seguir este formato:
 - Incertidumbre
 
 La conversación por caso admite hasta 3 mensajes del usuario. La WebApp usa esos mensajes para consolidar los hechos, pero las reglas siguen saliendo solo del contexto recuperado desde Supabase.
+
+Desde el segundo mensaje del usuario, el agente responde directamente el seguimiento sin forzar las cuatro secciones, pero debe mantener cita de regla y explicación suficiente. Si el usuario agrega datos o corrige el caso, la respuesta debe integrar la información nueva.
 
 La webapp está en `web/` y usa Next.js con un endpoint server-side `POST /api/ask`.
 
@@ -250,6 +252,38 @@ Abrir:
 ```text
 http://localhost:3000
 ```
+
+## Deploy en Vercel
+
+La webapp se puede deployar en Vercel usando `web/` como root directory del proyecto.
+
+Variables necesarias en Vercel:
+
+```env
+OPENAI_API_KEY=
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_ANSWER_MODEL=gpt-5-mini
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+APP_PASSCODE=
+```
+
+No cargar `SUPABASE_DB_URL` en Vercel. Esa variable solo se usa localmente para cargar chunks en Supabase.
+
+Antes de deployar, verificar localmente:
+
+```powershell
+cd web
+npm run build
+```
+
+Pruebas funcionales mínimas antes del deploy:
+
+- Bola equivocada en juego por golpes: debe citar Regla 6.3c y decir la penalización y cómo corregir.
+- Bola no encontrada: debe explicar búsqueda de tres minutos y golpe y distancia sin remisión vacía.
+- Aspersor fijo con interferencia: debe priorizar alivio sin penalidad si el contexto lo sostiene.
+- Segundo mensaje de una mini conversación: debe responder directo al seguimiento, sin forzar el formato de primera respuesta.
+- Si el usuario no menciona área de penalización, no debe agregar una opción hipotética de área de penalización.
 
 
 
