@@ -71,6 +71,17 @@ export default function Home() {
           <p>Base documental: reglas e interpretaciones cargadas.</p>
         </div>
 
+        <section className="usage" aria-label="Instrucciones de uso">
+          <h2>Cómo usarlo</h2>
+          <ol>
+            <li>Ingresá el passcode.</li>
+            <li>Describí una situación concreta de juego.</li>
+            <li>Podés agregar hasta 2 mensajes más del mismo caso.</li>
+            <li>Usá "Nuevo caso" para empezar otra situación.</li>
+          </ol>
+          <p>Por ahora acepta solo texto. Si falta un dato importante, el asistente te lo va a pedir.</p>
+        </section>
+
         <form onSubmit={submitQuestion}>
           <div className="field">
             <label htmlFor="passcode">Passcode</label>
@@ -92,6 +103,7 @@ export default function Home() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               disabled={remainingMessages <= 0 || loading}
+              placeholder="Ej: Mi bola quedó sobre una boca de riego fija en el fairway y me molesta el stance. ¿Qué hago?"
             />
           </div>
 
