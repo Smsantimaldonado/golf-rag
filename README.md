@@ -307,6 +307,8 @@ Pruebas funcionales mínimas antes del deploy:
 - Segundo mensaje de una mini conversación: debe responder directo al seguimiento, sin forzar el formato de primera respuesta.
 - Si el usuario no menciona área de penalización, no debe agregar una opción hipotética de área de penalización.
 
+El set estable de pruebas manuales está en `docs/golden-set.md`.
+
 
 
 ## Próximos pasos
