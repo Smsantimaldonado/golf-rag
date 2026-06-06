@@ -138,7 +138,7 @@ def answer_question(question: str, top_k: int = DEFAULT_TOP_K, show_context: boo
     client = OpenAI()
     chunks = retrieve(question=question, client=client, top_k=top_k)
     context = format_context(chunks)
-    answer = forced_answer(question) or generate_answer(client=client, question=question, context=context)
+    answer = generate_answer(client=client, question=question, context=context)
     if not show_context:
         return answer
     return answer + "\n\n--- Contexto recuperado ---\n" + context
@@ -308,31 +308,6 @@ def build_situation_instructions(question: str) -> str:
             "Respondé con el alivio sin penalidad de la Regla 16.1/16.1b y el procedimiento práctico."
         )
     return "No hay instrucciones específicas adicionales."
-
-
-def forced_answer(question: str) -> str | None:
-    normalized_question = strip_accents(question).lower()
-    sprinkler_or_immovable = re.search(r"\b(?:aspersor|obstruccion inamovible|camino artificial|drenaje|tapa fija)\b", normalized_question)
-    direct_interference = re.search(r"\b(?:stance|swing|reposo|lie|sobre|encima|molesta|interfiere|interferencia|pegada|pegado)\b", normalized_question)
-    if not sprinkler_or_immovable or not direct_interference:
-        return None
-    return """Decisión:
-Debe tomar alivio sin penalidad por obstrucción inamovible/condición anormal del campo, según la Regla 16.1b.
-
-Procedimiento práctico:
-1. Determine el punto más cercano de alivio total en el área general: el punto más cercano donde el aspersor ya no interfiera con el reposo de la bola, su stance ni su área de swing pretendido, y que no esté más cerca del hoyo.
-2. Desde ese punto, mida un área de alivio de una longitud de palo.
-3. Dropee la bola original u otra bola dentro de esa área de alivio. La bola debe quedar en el área general, no más cerca del hoyo, y con alivio total de la interferencia.
-4. No hay golpe de penalización por tomar este alivio.
-
-Explicación:
-Un aspersor fijo es una obstrucción inamovible. Cuando una obstrucción inamovible interfiere con el reposo de la bola, el stance o el área de swing, la regla específica de alivio es la Regla 16.1. Para una bola en el área general, la Regla 16.1b permite aliviarse sin penalidad usando el punto más cercano de alivio total y dropeando dentro de una longitud de palo. La Regla 14.7 trata jugar desde lugar equivocado y no es fundamento para indicar jugar la bola como reposa cuando aplica el alivio específico de la Regla 16.1b.
-
-Regla citada:
-Regla 16.1 y Regla 16.1b.
-
-Incertidumbre:
-No se advierte incertidumbre relevante con la información provista."""
 
 
 def format_context(chunks: Sequence[RetrievedChunk]) -> str:

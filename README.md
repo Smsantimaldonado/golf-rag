@@ -54,13 +54,20 @@ Para recrear el entorno:
 
 ## Variables de entorno
 
-Crear o actualizar `.env` con los valores reales:
+Crear o actualizar `.env` a partir del archivo de ejemplo:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Luego completar los valores reales:
 
 ```env
 OPENAI_API_KEY=
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_VISION_MODEL=gpt-5-mini
 OPENAI_ANSWER_MODEL=gpt-5-mini
+OPENAI_INTERPRETER_MODEL=gpt-5-mini
 CHROMA_PERSIST_DIR=vectordb/chroma
 CHROMA_COLLECTION_NAME=golf_rules
 SUPABASE_URL=
@@ -71,6 +78,8 @@ APP_PASSCODE=
 ```
 
 No commitear `.env`; ya está ignorado por Git.
+
+Sí se debe commitear `.env.example`, porque no contiene secretos y sirve como plantilla de configuración.
 
 ## Ingesta textual
 
@@ -226,14 +235,24 @@ La conversación por caso admite hasta 3 mensajes del usuario. La WebApp usa eso
 
 Desde el segundo mensaje del usuario, el agente responde directamente el seguimiento sin forzar las cuatro secciones, pero debe mantener cita de regla y explicación suficiente. Si el usuario agrega datos o corrige el caso, la respuesta debe integrar la información nueva.
 
+Antes de buscar reglas, la WebApp ejecuta una normalización semántica de la consulta. Esa capa puede emparentar términos coloquiales con categorías buscables, por ejemplo una instalación fija de riego con una obstrucción inamovible, y expande la consulta para mejorar el retrieval. Si la confianza es baja, el agente debe pedir una aclaración breve antes de decidir.
+
 La webapp está en `web/` y usa Next.js con un endpoint server-side `POST /api/ask`.
 
-Configurar `web/.env.local` con:
+Configurar `web/.env.local` a partir del archivo de ejemplo:
+
+```powershell
+cd web
+Copy-Item .env.local.example .env.local
+```
+
+Luego completar:
 
 ```env
 OPENAI_API_KEY=
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_ANSWER_MODEL=gpt-5-mini
+OPENAI_INTERPRETER_MODEL=gpt-5-mini
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 APP_PASSCODE=
@@ -253,6 +272,8 @@ Abrir:
 http://localhost:3000
 ```
 
+`web/.env.local` no se debe commitear. `web/.env.local.example` sí se debe commitear.
+
 ## Deploy en Vercel
 
 La webapp se puede deployar en Vercel usando `web/` como root directory del proyecto.
@@ -263,6 +284,7 @@ Variables necesarias en Vercel:
 OPENAI_API_KEY=
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_ANSWER_MODEL=gpt-5-mini
+OPENAI_INTERPRETER_MODEL=gpt-5-mini
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 APP_PASSCODE=
@@ -289,4 +311,6 @@ Pruebas funcionales mínimas antes del deploy:
 
 ## Próximos pasos
 
-Agregar entrada de imagen del usuario: interpretar la situación visual, combinarla con la descripción textual y usar esa situación normalizada para la búsqueda documental en Supabase.
+Próximo paso recomendado: preparar el deploy de la WebApp en Vercel usando `web/` como root directory, cargar las variables de entorno de producción y hacer una prueba funcional completa contra Supabase.
+
+Después de eso, agregar entrada de imagen del usuario: interpretar la situación visual, combinarla con la descripción textual y usar esa situación normalizada para la búsqueda documental en Supabase.

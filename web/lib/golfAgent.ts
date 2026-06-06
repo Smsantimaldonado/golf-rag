@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { interpretUserSituation, type InterpretedSituation } from "./situationInterpreter";
 
 const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
 const DEFAULT_ANSWER_MODEL = "gpt-5-mini";
@@ -61,6 +62,7 @@ Restricciones obligatorias:
 - Aunque el CONTEXTO recuperado incluya excepciones, no las menciones si dependen de hechos que el usuario no planteó. La existencia de una excepción en la regla no la vuelve relevante por sí sola.
 - No menciones modificaciones para jugadores con discapacidades o dispositivos de movilidad salvo que el usuario lo indique o pregunte por eso.
 - Si recuperás reglas tangenciales, no las cites salvo que sostengan directamente la decisión.
+- No agregues consejos laterales sobre reglas de mejorar condiciones, mover objetos, práctica, reglas locales u otras materias si el usuario no preguntó por eso y no son necesarias para reanudar el juego.
 - No le pidas al usuario que facilite texto de reglas o documentos. Tu única fuente documental es el CONTEXTO recuperado.
 - No hagas remisiones vacías como "tome alivio según la Regla 19" sin explicar qué debe hacer el jugador. Si mencionás una regla de alivio, resumí las opciones operativas disponibles en el CONTEXTO: dónde dropear/jugar, cuántas longitudes de palo corresponden y cuántos golpes de penalización tiene cada opción.
 - No uses frases como "proceda según la Regla X", "ver Regla X" o "continúe bajo la Regla X" como reemplazo de la decisión. Siempre explicá directamente qué debe hacer el jugador: desde dónde jugar, si debe dropear o repetir el golpe, cómo medir el área de alivio cuando corresponda y cuántos golpes de penalización tiene.
@@ -125,11 +127,21 @@ type RetrievedChunk = {
 };
 
 export async function answerGolfQuestion(userMessages: string[], topK = DEFAULT_TOP_K) {
-  const question = buildConversationQuestion(userMessages);
   const openai = new OpenAI({ apiKey: requiredEnv("OPENAI_API_KEY") });
+  const interpretation = await interpretUserSituation(openai, userMessages);
+
+  if (interpretation.requiresClarification && interpretation.confidence === "baja" && interpretation.clarifyingQuestion) {
+    return {
+      answer: interpretation.clarifyingQuestion,
+      citations: [],
+      interpretation,
+    };
+  }
+
+  const question = buildConversationQuestion(userMessages, interpretation);
   const chunks = await retrieve(question, openai, topK);
   const context = formatContext(chunks);
-  const answer = forcedAnswer(question) || (await generateAnswer(openai, question, context));
+  const answer = await generateAnswer(openai, question, context, interpretation);
 
   return {
     answer,
@@ -142,10 +154,11 @@ export async function answerGolfQuestion(userMessages: string[], topK = DEFAULT_
       pageEnd: chunk.metadata.page_end || null,
       distance: chunk.distance,
     })),
+    interpretation,
   };
 }
 
-export function buildConversationQuestion(userMessages: string[]) {
+export function buildConversationQuestion(userMessages: string[], interpretation?: InterpretedSituation) {
   const cleanedMessages = userMessages.map((message) => message.trim()).filter(Boolean);
   if (cleanedMessages.length === 0) {
     throw new Error("Ingresá al menos un mensaje.");
@@ -154,7 +167,7 @@ export function buildConversationQuestion(userMessages: string[]) {
     throw new Error(`La mini conversación admite hasta ${MAX_CONVERSATION_USER_MESSAGES} mensajes del usuario.`);
   }
   if (cleanedMessages.length === 1) {
-    return ["TIPO DE RESPUESTA: primera_respuesta", "", cleanedMessages[0]].join("\n");
+    return appendInterpretation(["TIPO DE RESPUESTA: primera_respuesta", "", cleanedMessages[0]].join("\n"), interpretation);
   }
 
   const lines = [
@@ -169,7 +182,7 @@ export function buildConversationQuestion(userMessages: string[]) {
     lines.push(`Mensaje ${index + 1} del usuario: ${message}`);
   });
   lines.push("", "Respondé la consulta considerando el caso completo y la última intervención del usuario.");
-  return lines.join("\n");
+  return appendInterpretation(lines.join("\n"), interpretation);
 }
 
 async function retrieve(question: string, openai: OpenAI, topK: number) {
@@ -309,7 +322,7 @@ function prioritizeReferencedRules(chunks: RetrievedChunk[], query: string) {
   });
 }
 
-async function generateAnswer(openai: OpenAI, question: string, context: string) {
+async function generateAnswer(openai: OpenAI, question: string, context: string, interpretation: InterpretedSituation) {
   const answerModel = process.env.OPENAI_ANSWER_MODEL || DEFAULT_ANSWER_MODEL;
   const situationInstructions = buildSituationInstructions(question);
   const prompt = `${systemPrompt}\n\nInstrucciones prioritarias para esta consulta:\n${situationInstructions}`;
@@ -319,11 +332,23 @@ async function generateAnswer(openai: OpenAI, question: string, context: string)
       { role: "system", content: [{ type: "input_text", text: prompt }] },
       {
         role: "user",
-        content: [{ type: "input_text", text: `CONSULTA:\n${question}\n\nCONTEXTO:\n${context}` }],
+        content: [
+          {
+            type: "input_text",
+            text: `CONSULTA:\n${question}\n\nINTERPRETACIÓN SEMÁNTICA:\n${formatInterpretation(interpretation)}\n\nCONTEXTO:\n${context}`,
+          },
+        ],
       },
     ],
   });
   return response.output_text.trim();
+}
+
+function appendInterpretation(question: string, interpretation?: InterpretedSituation) {
+  if (!interpretation || !interpretation.expandedQuery) {
+    return question;
+  }
+  return `${question}\n\nInterpretación semántica para búsqueda:\n${formatInterpretation(interpretation)}`;
 }
 
 function buildSituationInstructions(question: string) {
@@ -342,30 +367,17 @@ function buildSituationInstructions(question: string) {
   return "No hay instrucciones específicas adicionales.";
 }
 
-function forcedAnswer(question: string) {
-  const normalizedQuestion = stripAccents(question).toLowerCase();
-  const sprinklerOrImmovable = /\b(?:aspersor|obstruccion inamovible|camino artificial|drenaje|tapa fija)\b/.test(normalizedQuestion);
-  const directInterference = /\b(?:stance|swing|reposo|lie|sobre|encima|molesta|interfiere|interferencia|pegada|pegado)\b/.test(normalizedQuestion);
-  if (!sprinklerOrImmovable || !directInterference) {
-    return null;
-  }
-  return `Decisión:
-Debe tomar alivio sin penalidad por obstrucción inamovible/condición anormal del campo, según la Regla 16.1b.
-
-Procedimiento práctico:
-1. Determine el punto más cercano de alivio total en el área general: el punto más cercano donde el aspersor ya no interfiera con el reposo de la bola, su stance ni su área de swing pretendido, y que no esté más cerca del hoyo.
-2. Desde ese punto, mida un área de alivio de una longitud de palo.
-3. Dropee la bola original u otra bola dentro de esa área de alivio. La bola debe quedar en el área general, no más cerca del hoyo, y con alivio total de la interferencia.
-4. No hay golpe de penalización por tomar este alivio.
-
-Explicación:
-Un aspersor fijo es una obstrucción inamovible. Cuando una obstrucción inamovible interfiere con el reposo de la bola, el stance o el área de swing, la regla específica de alivio es la Regla 16.1. Para una bola en el área general, la Regla 16.1b permite aliviarse sin penalidad usando el punto más cercano de alivio total y dropeando dentro de una longitud de palo. La Regla 14.7 trata jugar desde lugar equivocado y no es fundamento para indicar jugar la bola como reposa cuando aplica el alivio específico de la Regla 16.1b.
-
-Regla citada:
-Regla 16.1 y Regla 16.1b.
-
-Incertidumbre:
-No se advierte incertidumbre relevante con la información provista.`;
+function formatInterpretation(interpretation: InterpretedSituation) {
+  return [
+    interpretation.facts.length ? `Hechos: ${interpretation.facts.join("; ")}` : "",
+    interpretation.originalTerms.length ? `Términos originales: ${interpretation.originalTerms.join(", ")}` : "",
+    interpretation.normalizedTerms.length ? `Términos normalizados: ${interpretation.normalizedTerms.join(", ")}` : "",
+    interpretation.ruleCategories.length ? `Categorías para búsqueda: ${interpretation.ruleCategories.join(", ")}` : "",
+    interpretation.expandedQuery ? `Consulta expandida: ${interpretation.expandedQuery}` : "",
+    `Confianza: ${interpretation.confidence}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function formatContext(chunks: RetrievedChunk[]) {
