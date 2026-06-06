@@ -299,6 +299,8 @@ cd web
 npm run build
 ```
 
+El endpoint `POST /api/ask` usa varias llamadas server-side encadenadas (normalización semántica, embeddings, Supabase y respuesta), por lo que la función está configurada con una duración máxima de 60 segundos para producción.
+
 Pruebas funcionales mínimas antes del deploy:
 
 - Bola equivocada en juego por golpes: debe citar Regla 6.3c y decir la penalización y cómo corregir.

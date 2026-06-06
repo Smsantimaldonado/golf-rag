@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { answerGolfQuestion } from "@/lib/golfAgent";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 type AskRequest = {
   messages?: unknown;
