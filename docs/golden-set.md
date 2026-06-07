@@ -160,3 +160,36 @@ Criterios esperados:
 - Si no puede determinar si es fija o movible, debe pedir una aclaración breve.
 - No debe decidir penalidad o alivio definitivo si esa distinción cambia la regla aplicable.
 - Debe mantener la incertidumbre enfocada en el dato material faltante.
+
+## Casos Multimodales
+
+Usar imágenes no sensibles y evitar fotos con personas identificables. El objetivo de estas pruebas es validar que la imagen mejore la comprensión del caso sin reemplazar la búsqueda documental.
+
+### 11. Imagen + texto de boca de riego o aspersor fijo
+
+Consulta:
+
+```text
+Mi bola quedó sobre esto y me molesta el stance. ¿Qué hago?
+```
+
+Criterios esperados:
+
+- Debe describir el objeto visible sin decidir reglas desde la imagen.
+- Debe emparentar razonablemente el objeto fijo con obstrucción inamovible si la imagen lo permite.
+- Debe citar la regla recuperada desde Supabase.
+- Debe declarar incertidumbre visual si la imagen no permite distinguir si el objeto es fijo o movible.
+
+### 12. Imagen ambigua o borrosa
+
+Consulta:
+
+```text
+¿Qué puedo hacer acá?
+```
+
+Criterios esperados:
+
+- Debe admitir que la imagen no permite identificar datos materiales si corresponde.
+- Debe pedir una aclaración breve cuando esos datos cambien la decisión.
+- No debe inventar área de penalización, bunker, green u obstrucción si no se ven claramente.

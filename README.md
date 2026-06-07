@@ -222,7 +222,7 @@ La respuesta debe seguir este formato:
 - Explicación
 - Incertidumbre
 
-## Consulta textual WebApp MVP
+## Consulta WebApp MVP
 
 La primera respuesta de cada caso debe seguir este formato:
 
@@ -233,9 +233,11 @@ La primera respuesta de cada caso debe seguir este formato:
 
 La conversación por caso admite hasta 3 mensajes del usuario. La WebApp usa esos mensajes para consolidar los hechos, pero las reglas siguen saliendo solo del contexto recuperado desde Supabase.
 
+La WebApp acepta texto, imagen, o texto + imagen. Para el MVP multimodal, cada mensaje puede incluir como máximo una imagen JPG, PNG o WEBP de hasta 5 MB. Las imágenes se procesan en memoria y no se guardan.
+
 Desde el segundo mensaje del usuario, el agente responde directamente el seguimiento sin forzar las cuatro secciones, pero debe mantener cita de regla y explicación suficiente. Si el usuario agrega datos o corrige el caso, la respuesta debe integrar la información nueva.
 
-Antes de buscar reglas, la WebApp ejecuta una normalización semántica de la consulta. Esa capa puede emparentar términos coloquiales con categorías buscables, por ejemplo una instalación fija de riego con una obstrucción inamovible, y expande la consulta para mejorar el retrieval. Si la confianza es baja, el agente debe pedir una aclaración breve antes de decidir.
+Antes de buscar reglas, la WebApp ejecuta una normalización semántica de la consulta. Esa capa puede emparentar términos coloquiales o hechos visuales con categorías buscables, por ejemplo una instalación fija de riego con una obstrucción inamovible, y expande la consulta para mejorar el retrieval. Si la confianza es baja, el agente debe pedir una aclaración breve antes de decidir.
 
 La webapp está en `web/` y usa Next.js con un endpoint server-side `POST /api/ask`.
 
@@ -253,6 +255,7 @@ OPENAI_API_KEY=
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_ANSWER_MODEL=gpt-5-mini
 OPENAI_INTERPRETER_MODEL=gpt-5-mini
+OPENAI_VISION_MODEL=gpt-5-mini
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 APP_PASSCODE=
@@ -285,6 +288,7 @@ OPENAI_API_KEY=
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_ANSWER_MODEL=gpt-5-mini
 OPENAI_INTERPRETER_MODEL=gpt-5-mini
+OPENAI_VISION_MODEL=gpt-5-mini
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 APP_PASSCODE=
@@ -306,6 +310,7 @@ Pruebas funcionales mínimas antes del deploy:
 - Bola equivocada en juego por golpes: debe citar Regla 6.3c y decir la penalización y cómo corregir.
 - Bola no encontrada: debe explicar búsqueda de tres minutos y golpe y distancia sin remisión vacía.
 - Aspersor fijo con interferencia: debe priorizar alivio sin penalidad si el contexto lo sostiene.
+- Imagen de una situación de juego: debe describir hechos visibles, buscar reglas en Supabase y declarar incertidumbre si la imagen no alcanza.
 - Segundo mensaje de una mini conversación: debe responder directo al seguimiento, sin forzar el formato de primera respuesta.
 - Si el usuario no menciona área de penalización, no debe agregar una opción hipotética de área de penalización.
 
@@ -317,4 +322,4 @@ El set estable de pruebas manuales está en `docs/golden-set.md`.
 
 Próximo paso recomendado: preparar el deploy de la WebApp en Vercel usando `web/` como root directory, cargar las variables de entorno de producción y hacer una prueba funcional completa contra Supabase.
 
-Después de eso, agregar entrada de imagen del usuario: interpretar la situación visual, combinarla con la descripción textual y usar esa situación normalizada para la búsqueda documental en Supabase.
+Después de eso, mejorar la evaluación multimodal con un golden set de imágenes reales no sensibles y ajustar la experiencia para beta privada.
