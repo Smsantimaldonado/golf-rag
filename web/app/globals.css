@@ -117,67 +117,9 @@ button:disabled {
   padding: 12px;
 }
 
-.file-input {
-  width: 100%;
-  color: var(--muted);
-}
-
 .textarea {
   min-height: 130px;
   resize: vertical;
-}
-
-.hint {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.image-preview {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-  padding: 10px;
-}
-
-.image-preview img {
-  width: 76px;
-  height: 76px;
-  border-radius: 6px;
-  object-fit: cover;
-}
-
-.image-details {
-  min-width: 0;
-  display: grid;
-  gap: 8px;
-}
-
-.image-details span {
-  overflow: hidden;
-  color: var(--foreground);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.link-button {
-  justify-self: start;
-  background: transparent;
-  color: var(--accent-dark);
-  font-weight: 700;
-  padding: 0;
-}
-
-.attachment {
-  display: block;
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 13px;
 }
 
 .button {

@@ -1,7 +1,6 @@
 import OpenAI from "openai";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { interpretUserSituation, type InterpretedSituation } from "./situationInterpreter";
-import { describeUserSituationImage, type UserSituationImage, type VisualSituationDescription } from "./userImageInterpreter";
 
 const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
 const DEFAULT_ANSWER_MODEL = "gpt-5-mini";
@@ -27,14 +26,6 @@ const queryExpansions: Array<[RegExp, string]> = [
   [
     /\baspersor(?:es)?\b/i,
     "obstrucción inamovible condición anormal del campo Regla 16.1 punto más cercano de alivio total alivio sin penalización",
-  ],
-  [
-    /\b(?:boca de riego|riego fija|objeto circular metalico|objeto circular metálico|rejilla|drenaje|tapa metalica|tapa metálica|tapa fija)\b/i,
-    "instalación fija de riego drenaje tapa fija obstrucción inamovible condición anormal del campo Regla 16.1 alivio sin penalización punto más cercano de alivio total",
-  ],
-  [
-    /\b(?:estaca roja|estacas rojas|estaca amarilla|estacas amarillas|linea roja|línea roja|linea amarilla|línea amarilla)\b/i,
-    "área de penalización Regla 17 estaca roja estaca amarilla opciones de alivio área de penalización",
   ],
   [
     /\b(?:rastrillo|rastrillos|manguera|mangueras|botella|botellas|toalla|toallas)\b/i,
@@ -67,9 +58,6 @@ Restricciones obligatorias:
 - Citá siempre número de regla cuando exista.
 - Si hay incertidumbre factual, indicala explícitamente.
 - No inventes reglas, penalizaciones, procedimientos ni excepciones.
-- Si la consulta incluye "Contexto visual aportado por imagen", usalo solo como hechos observados para entender la situación. La regla aplicable, penalidad y procedimiento siempre deben salir del CONTEXTO documental recuperado.
-- Si la imagen no permite identificar un dato que cambia materialmente la decisión, declaralo en "Incertidumbre" o pedí una aclaración breve cuando corresponda.
-- Si el texto del usuario y la imagen se contradicen sobre un dato material, no fuerces una decisión: indicá la contradicción y pedí aclaración.
 - Da primero la regla general aplicable. Mencioná excepciones o modificaciones especiales solo si el usuario las pregunta o si son necesarias para evitar una respuesta engañosa.
 - Aunque el CONTEXTO recuperado incluya excepciones, no las menciones si dependen de hechos que el usuario no planteó. La existencia de una excepción en la regla no la vuelve relevante por sí sola.
 - No menciones modificaciones para jugadores con discapacidades o dispositivos de movilidad salvo que el usuario lo indique o pregunte por eso.
@@ -143,21 +131,6 @@ type RetrievedChunk = {
 
 export async function answerGolfQuestion(userMessages: string[], topK = DEFAULT_TOP_K) {
   const openai = new OpenAI({ apiKey: requiredEnv("OPENAI_API_KEY") });
-  return answerGolfQuestionWithOpenAI(openai, userMessages, topK);
-}
-
-export async function answerGolfQuestionWithImage(userMessages: string[], image: UserSituationImage, topK = DEFAULT_TOP_K) {
-  const openai = new OpenAI({ apiKey: requiredEnv("OPENAI_API_KEY") });
-  const visualDescription = await describeUserSituationImage(openai, image);
-  return answerGolfQuestionWithOpenAI(openai, userMessagesWithVisualContext(userMessages, visualDescription), topK, visualDescription);
-}
-
-async function answerGolfQuestionWithOpenAI(
-  openai: OpenAI,
-  userMessages: string[],
-  topK = DEFAULT_TOP_K,
-  visualDescription?: VisualSituationDescription,
-) {
   const interpretation = await interpretUserSituation(openai, userMessages);
 
   if (interpretation.requiresClarification && interpretation.confidence === "baja" && interpretation.clarifyingQuestion) {
@@ -165,7 +138,6 @@ async function answerGolfQuestionWithOpenAI(
       answer: interpretation.clarifyingQuestion,
       citations: [],
       interpretation,
-      visualDescription,
     };
   }
 
@@ -186,7 +158,6 @@ async function answerGolfQuestionWithOpenAI(
       distance: chunk.distance,
     })),
     interpretation,
-    visualDescription,
   };
 }
 
@@ -303,22 +274,6 @@ function buildRetrievalQuery(question: string) {
   return `${question}\n\nTerminos de recuperacion: ${additions.join(" ")}`;
 }
 
-function userMessagesWithVisualContext(userMessages: string[], visualDescription: VisualSituationDescription) {
-  const cleanedMessages = userMessages.map((message) => message.trim()).filter(Boolean);
-  const baseMessages = cleanedMessages.length ? [...cleanedMessages] : ["Consulta con imagen adjunta."];
-  const lastIndex = baseMessages.length - 1;
-  baseMessages[lastIndex] = [
-    baseMessages[lastIndex],
-    "",
-    "Contexto visual aportado por imagen:",
-    visualDescription.description,
-    "",
-    "Incertidumbre visual:",
-    visualDescription.uncertainty,
-  ].join("\n");
-  return baseMessages;
-}
-
 function filterTangentialChunks(chunks: RetrievedChunk[], normalizedQuestion: string) {
   return chunks.filter((chunk) => {
     const ruleNumber = String(chunk.metadata.rule_number || "");
@@ -401,9 +356,7 @@ function appendInterpretation(question: string, interpretation?: InterpretedSitu
 
 function buildSituationInstructions(question: string) {
   const normalizedQuestion = stripAccents(question).toLowerCase();
-  const sprinklerOrImmovable = /\b(?:aspersor|boca de riego|obstruccion inamovible|camino artificial|drenaje|rejilla|tapa fija|tapa metalica|objeto circular metalico)\b/.test(
-    normalizedQuestion,
-  );
+  const sprinklerOrImmovable = /\b(?:aspersor|obstruccion inamovible|camino artificial|drenaje|tapa fija)\b/.test(normalizedQuestion);
   const directInterference = /\b(?:stance|swing|reposo|lie|sobre|encima|molesta|interfiere|interferencia|pegada|pegado)\b/.test(normalizedQuestion);
   if (sprinklerOrImmovable && directInterference) {
     return [

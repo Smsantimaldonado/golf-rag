@@ -1,11 +1,10 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 
 type Turn = {
   role: "user" | "assistant";
   content: string;
-  imageName?: string;
 };
 
 type AskResponse = {
@@ -14,31 +13,17 @@ type AskResponse = {
 };
 
 const maxUserMessages = 3;
-const maxImageBytes = 5 * 1024 * 1024;
-const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export default function Home() {
   const [passcode, setPasscode] = useState("");
   const [draft, setDraft] = useState("");
-  const [image, setImage] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const userMessages = useMemo(() => turns.filter((turn) => turn.role === "user").map((turn) => turn.content), [turns]);
   const remainingMessages = maxUserMessages - userMessages.length;
-  const canAsk = (draft.trim().length > 0 || Boolean(image)) && remainingMessages > 0 && !loading;
-
-  useEffect(() => {
-    if (!image) {
-      setImagePreviewUrl("");
-      return;
-    }
-    const nextPreviewUrl = URL.createObjectURL(image);
-    setImagePreviewUrl(nextPreviewUrl);
-    return () => URL.revokeObjectURL(nextPreviewUrl);
-  }, [image]);
+  const canAsk = draft.trim().length > 0 && remainingMessages > 0 && !loading;
 
   async function submitQuestion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -46,26 +31,18 @@ export default function Home() {
       return;
     }
 
-    const messageText = draft.trim() || "Consulta con imagen adjunta.";
-    const nextUserMessages = [...userMessages, messageText];
-    const nextTurns: Turn[] = [...turns, { role: "user", content: messageText, imageName: image?.name }];
+    const nextUserMessages = [...userMessages, draft.trim()];
+    const nextTurns: Turn[] = [...turns, { role: "user", content: draft.trim() }];
     setTurns(nextTurns);
     setDraft("");
-    setImage(null);
     setError("");
     setLoading(true);
 
     try {
-      const formData = new FormData();
-      formData.append("passcode", passcode);
-      formData.append("messages", JSON.stringify(nextUserMessages));
-      if (image) {
-        formData.append("image", image);
-      }
-
       const response = await fetch("/api/ask", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: nextUserMessages, passcode }),
       });
       const payload = (await response.json()) as AskResponse;
       if (!response.ok || payload.error) {
@@ -83,26 +60,7 @@ export default function Home() {
   function resetCase() {
     setTurns([]);
     setDraft("");
-    setImage(null);
     setError("");
-  }
-
-  function selectImage(event: ChangeEvent<HTMLInputElement>) {
-    const nextImage = event.target.files?.[0] || null;
-    event.target.value = "";
-    setError("");
-    if (!nextImage) {
-      return;
-    }
-    if (!allowedImageTypes.has(nextImage.type)) {
-      setError("La imagen debe ser JPG, PNG o WEBP.");
-      return;
-    }
-    if (nextImage.size > maxImageBytes) {
-      setError("La imagen no puede superar 5 MB.");
-      return;
-    }
-    setImage(nextImage);
   }
 
   return (
@@ -117,11 +75,11 @@ export default function Home() {
           <h2>Cómo usarlo</h2>
           <ol>
             <li>Ingresá el passcode.</li>
-            <li>Describí una situación concreta de juego o adjuntá una imagen.</li>
+            <li>Describí una situación concreta de juego.</li>
             <li>Podés agregar hasta 2 mensajes más del mismo caso.</li>
             <li>Usá "Nuevo caso" para empezar otra situación.</li>
           </ol>
-          <p>Si la imagen no alcanza para decidir, el asistente va a admitir incertidumbre o pedir una aclaración.</p>
+          <p>Por ahora acepta solo texto. Si falta un dato importante, el asistente te lo va a pedir.</p>
         </section>
 
         <form onSubmit={submitQuestion}>
@@ -149,24 +107,6 @@ export default function Home() {
             />
           </div>
 
-          <div className="field">
-            <label htmlFor="image">Imagen opcional</label>
-            <input id="image" className="file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={selectImage} disabled={remainingMessages <= 0 || loading} />
-            {image ? (
-              <div className="image-preview">
-                {imagePreviewUrl ? <img src={imagePreviewUrl} alt="Vista previa de la imagen adjunta" /> : null}
-                <div className="image-details">
-                  <span>{image.name}</span>
-                  <button className="link-button" type="button" onClick={() => setImage(null)} disabled={loading}>
-                    Quitar imagen
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <p className="hint">JPG, PNG o WEBP. Máximo 5 MB.</p>
-            )}
-          </div>
-
           <div className="actions">
             <button className="button" type="submit" disabled={!canAsk}>
               {loading ? "Consultando..." : "Consultar"}
@@ -191,7 +131,6 @@ export default function Home() {
             <article className={`message ${turn.role}`} key={`${turn.role}-${index}`}>
               <span className="message-label">{turn.role === "user" ? `Usuario ${userTurnNumber(turns, index)}` : "Agente"}</span>
               {turn.content}
-              {turn.imageName ? <span className="attachment">Imagen adjunta: {turn.imageName}</span> : null}
             </article>
           ))}
 
