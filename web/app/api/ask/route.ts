@@ -6,16 +6,11 @@ export const maxDuration = 60;
 
 type AskRequest = {
   messages?: unknown;
-  passcode?: unknown;
 };
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as AskRequest;
-    const expectedPasscode = process.env.APP_PASSCODE;
-    if (expectedPasscode && body.passcode !== expectedPasscode) {
-      return NextResponse.json({ error: "Passcode inválido." }, { status: 401 });
-    }
 
     if (!Array.isArray(body.messages) || !body.messages.every((message) => typeof message === "string")) {
       return NextResponse.json({ error: "El cuerpo debe incluir messages como lista de textos." }, { status: 400 });

@@ -15,7 +15,6 @@ type AskResponse = {
 const maxUserMessages = 3;
 
 export default function Home() {
-  const [passcode, setPasscode] = useState("");
   const [draft, setDraft] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,7 +41,7 @@ export default function Home() {
       const response = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextUserMessages, passcode }),
+        body: JSON.stringify({ messages: nextUserMessages }),
       });
       const payload = (await response.json()) as AskResponse;
       if (!response.ok || payload.error) {
@@ -74,7 +73,6 @@ export default function Home() {
         <section className="usage" aria-label="Instrucciones de uso">
           <h2>Cómo usarlo</h2>
           <ol>
-            <li>Ingresá el passcode.</li>
             <li>Describí una situación concreta de juego.</li>
             <li>Podés agregar hasta 2 mensajes más del mismo caso.</li>
             <li>Usá "Nuevo caso" para empezar otra situación.</li>
@@ -83,18 +81,6 @@ export default function Home() {
         </section>
 
         <form onSubmit={submitQuestion}>
-          <div className="field">
-            <label htmlFor="passcode">Passcode</label>
-            <input
-              id="passcode"
-              className="input"
-              type="password"
-              value={passcode}
-              onChange={(event) => setPasscode(event.target.value)}
-              autoComplete="current-password"
-            />
-          </div>
-
           <div className="field">
             <label htmlFor="question">Mensaje del usuario</label>
             <textarea

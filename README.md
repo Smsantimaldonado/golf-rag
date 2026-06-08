@@ -74,7 +74,6 @@ SUPABASE_URL=
 SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 SUPABASE_DB_URL=
-APP_PASSCODE=
 ```
 
 No commitear `.env`; ya está ignorado por Git.
@@ -255,8 +254,9 @@ OPENAI_ANSWER_MODEL=gpt-5-mini
 OPENAI_INTERPRETER_MODEL=gpt-5-mini
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
-APP_PASSCODE=
 ```
+
+La WebApp no usa passcode. El acceso se controla compartiendo o no compartiendo la URL.
 
 Instalar y correr:
 
@@ -287,7 +287,6 @@ OPENAI_ANSWER_MODEL=gpt-5-mini
 OPENAI_INTERPRETER_MODEL=gpt-5-mini
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
-APP_PASSCODE=
 ```
 
 No cargar `SUPABASE_DB_URL` en Vercel. Esa variable solo se usa localmente para cargar chunks en Supabase.
