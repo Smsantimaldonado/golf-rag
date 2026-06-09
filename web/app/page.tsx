@@ -94,13 +94,13 @@ export default function Home() {
           <div className="brand">
             <div className="brand-mark" aria-hidden="true">
               <svg viewBox="0 0 24 24" role="img">
-                <path d="M7 3v18" />
-                <path d="M7 4h10l-3 4 3 4H7" />
-                <circle cx="16.5" cy="18" r="2" />
+                <circle cx="12" cy="12" r="8" />
+                <path d="M12 4a8 8 0 0 1 6 2.7" />
+                <path d="M4.5 9h15" />
+                <path d="M4.5 15h15" />
               </svg>
             </div>
             <div>
-              <p className="eyebrow">Reglas de golf</p>
               <h1>Asistente de Reglas de Golf</h1>
             </div>
           </div>
@@ -115,11 +115,6 @@ export default function Home() {
             <p>Por ahora acepta solo texto. Si falta un dato importante, el asistente te lo va a pedir.</p>
           </section>
 
-          <div className="side-note">
-            <span>Mensajes restantes</span>
-            <strong>{remainingMessages}</strong>
-          </div>
-
           {error ? <p className="error">{error}</p> : null}
         </aside>
 
@@ -129,14 +124,15 @@ export default function Home() {
               <div className="welcome-content">
                 <div className="welcome-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" role="img">
-                    <path d="M12 3c-4.42 0-8 3.13-8 7 0 2.33 1.3 4.4 3.3 5.67L7 21l4.58-3.08H12c4.42 0 8-3.13 8-7s-3.58-7-8-7Z" />
-                    <path d="M9 10h6" />
-                    <path d="M9 13h4" />
+                    <circle cx="12" cy="12" r="8" />
+                    <path d="M12 4a8 8 0 0 1 6 2.7" />
+                    <path d="M4.5 9h15" />
+                    <path d="M4.5 15h15" />
                   </svg>
                 </div>
-                <h2>Consultá una situación de juego</h2>
+                <h2>Asistente de Reglas de Golf</h2>
                 <p>
-                  Describí lo que pasó en la cancha y obtené una respuesta fundada en las reglas y la guía documental cargada.
+                  Describí una situación de juego y obtené una respuesta fundamentada en el reglamento oficial y la guía de interpretaciones.
                 </p>
 
                 <div className="suggestions" aria-label="Sugerencias de consulta">
@@ -163,19 +159,28 @@ export default function Home() {
             <section className="chat-panel" aria-label="Conversacion del caso">
               <header className="chat-header">
                 <div>
-                  <p className="eyebrow">Caso activo</p>
-                  <h2>Seguimiento de la consulta</h2>
+                  <h2>Caso activo</h2>
+                  <p>Consulta documental sobre reglas de golf</p>
                 </div>
-                <button className="ghost-button" type="button" onClick={resetCase} disabled={loading}>
-                  Nuevo caso
-                </button>
+                <span className="case-badge">
+                  {remainingMessages} mensaje{remainingMessages === 1 ? "" : "s"} restante{remainingMessages === 1 ? "" : "s"}
+                </span>
               </header>
 
               <div className="chat-messages" aria-live="polite">
                 {turns.map((turn, index) => (
                   <article className={`message ${turn.role}`} key={`${turn.role}-${index}`}>
                     <div className="avatar" aria-hidden="true">
-                      {turn.role === "user" ? "U" : "A"}
+                      {turn.role === "user" ? (
+                        "S"
+                      ) : (
+                        <svg viewBox="0 0 24 24" role="img">
+                          <circle cx="12" cy="12" r="8" />
+                          <path d="M12 4a8 8 0 0 1 6 2.7" />
+                          <path d="M4.5 9h15" />
+                          <path d="M4.5 15h15" />
+                        </svg>
+                      )}
                     </div>
                     <div className="message-card">
                       <span className="message-label">{turn.role === "user" ? `Usuario ${userTurnNumber(turns, index)}` : "Agente"}</span>
@@ -187,7 +192,12 @@ export default function Home() {
                 {loading ? (
                   <article className="message assistant">
                     <div className="avatar" aria-hidden="true">
-                      A
+                      <svg viewBox="0 0 24 24" role="img">
+                        <circle cx="12" cy="12" r="8" />
+                        <path d="M12 4a8 8 0 0 1 6 2.7" />
+                        <path d="M4.5 9h15" />
+                        <path d="M4.5 15h15" />
+                      </svg>
                     </div>
                     <div className="message-card typing-card">
                       <span className="message-label">Agente</span>
@@ -202,21 +212,21 @@ export default function Home() {
               </div>
 
               <div className="chat-footer">
-                <QuestionForm
-                  canAsk={canAsk}
-                  disabled={remainingMessages <= 0 || loading}
-                  draft={draft}
-                  loading={loading}
-                  onChange={setDraft}
-                  onSubmit={submitQuestion}
-                  placeholder="Seguí con el mismo caso..."
-                  textareaRef={textareaRef}
-                />
-                <p className="remaining-copy">
-                  {remainingMessages > 0
-                    ? `Te quedan ${remainingMessages} mensaje${remainingMessages === 1 ? "" : "s"} para este caso.`
-                    : "Ya usaste los 3 mensajes de este caso."}
-                </p>
+                <div className="conversation-toolbar">
+                  <button className="new-case-button" type="button" onClick={resetCase} disabled={loading}>
+                    Nuevo caso
+                  </button>
+                  <QuestionForm
+                    canAsk={canAsk}
+                    disabled={remainingMessages <= 0 || loading}
+                    draft={draft}
+                    loading={loading}
+                    onChange={setDraft}
+                    onSubmit={submitQuestion}
+                    placeholder="Seguí con el mismo caso..."
+                    textareaRef={textareaRef}
+                  />
+                </div>
               </div>
             </section>
           )}
@@ -260,7 +270,7 @@ function QuestionForm({
         rows={1}
       />
       <button className="send-button" type="submit" disabled={!canAsk}>
-        {loading ? "Consultando" : "Enviar"}
+        {loading ? "..." : "Enviar"}
       </button>
     </form>
   );
