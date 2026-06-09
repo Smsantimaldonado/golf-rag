@@ -62,9 +62,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: nextUserMessages }),
       });
-      const payload = (await response.json()) as AskResponse;
+      const responseText = await response.text();
+      const payload = parseAskResponse(responseText);
       if (!response.ok || payload.error) {
-        throw new Error(payload.error || "No se pudo obtener respuesta.");
+        throw new Error(payload.error || responseText || "No se pudo obtener respuesta.");
       }
       setTurns([...nextTurns, { role: "assistant", content: payload.answer || "" }]);
     } catch (caughtError) {
@@ -278,4 +279,12 @@ function QuestionForm({
 
 function userTurnNumber(turns: Turn[], index: number) {
   return turns.slice(0, index + 1).filter((turn) => turn.role === "user").length;
+}
+
+function parseAskResponse(responseText: string): AskResponse {
+  try {
+    return JSON.parse(responseText) as AskResponse;
+  } catch {
+    return { error: responseText };
+  }
 }
