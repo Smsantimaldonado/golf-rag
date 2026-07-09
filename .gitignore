@@ -13,3 +13,7 @@ web/out/
 web/.env.local
 web/.vercel/
 mejoras.txt
+rag_test_excel_results.json
+scripts/xlsx_cases.py
+scripts/build_rag_test_results.py
+.agents
