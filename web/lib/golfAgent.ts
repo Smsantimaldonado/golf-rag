@@ -129,36 +129,72 @@ type RetrievedChunk = {
   distance: number;
 };
 
-export async function answerGolfQuestion(userMessages: string[], topK = DEFAULT_TOP_K) {
-  const openai = new OpenAI({ apiKey: requiredEnv("OPENAI_API_KEY") });
-  const interpretation = await interpretUserSituation(openai, userMessages);
+type SupabaseResult<T> = {
+  data: T | null;
+  error: { message: string } | null;
+};
 
-  if (interpretation.requiresClarification && interpretation.confidence === "baja" && interpretation.clarifyingQuestion) {
+export type PerfStage = "total" | "interpretation" | "embedding" | "supabase_match" | "supabase_expand" | "final_answer";
+
+export type PerfMetric = {
+  stage: PerfStage;
+  durationMs: number;
+};
+
+type AnswerGolfQuestionOptions = {
+  topK?: number;
+  requestId?: string;
+  onMetric?: (metric: PerfMetric) => void;
+};
+
+type ResolvedAnswerGolfQuestionOptions = AnswerGolfQuestionOptions & {
+  topK: number;
+};
+
+export async function answerGolfQuestion(userMessages: string[], options: number | AnswerGolfQuestionOptions = {}) {
+  const resolvedOptions = normalizeOptions(options);
+  const totalStartedAt = now();
+  logStageStart("total", resolvedOptions, { messageCount: userMessages.length, topK: resolvedOptions.topK });
+
+  const openai = new OpenAI({ apiKey: requiredEnv("OPENAI_API_KEY") });
+  try {
+    const interpretation = await measureStage("interpretation", resolvedOptions, () => interpretUserSituation(openai, userMessages));
+
+    if (interpretation.requiresClarification && interpretation.confidence === "baja" && interpretation.clarifyingQuestion) {
+      emitMetric("total", totalStartedAt, resolvedOptions, { clarified: true });
+      return {
+        answer: interpretation.clarifyingQuestion,
+        citations: [],
+        interpretation,
+      };
+    }
+
+    const question = buildConversationQuestion(userMessages, interpretation);
+    const chunks = await retrieve(question, openai, resolvedOptions.topK, resolvedOptions);
+    const context = formatContext(chunks);
+    const answer = await measureStage("final_answer", resolvedOptions, () => generateAnswer(openai, question, context, interpretation), {
+      contextChunks: chunks.length,
+      model: process.env.OPENAI_ANSWER_MODEL || DEFAULT_ANSWER_MODEL,
+    });
+
+    emitMetric("total", totalStartedAt, resolvedOptions, { contextChunks: chunks.length });
     return {
-      answer: interpretation.clarifyingQuestion,
-      citations: [],
+      answer,
+      citations: chunks.map((chunk) => ({
+        id: chunk.id,
+        rule: chunk.metadata.rule_number || null,
+        heading: chunk.metadata.heading || null,
+        source: chunk.metadata.source || null,
+        pageStart: chunk.metadata.page_start || null,
+        pageEnd: chunk.metadata.page_end || null,
+        distance: chunk.distance,
+      })),
       interpretation,
     };
+  } catch (error) {
+    logStageError("total", totalStartedAt, resolvedOptions, error);
+    throw error;
   }
-
-  const question = buildConversationQuestion(userMessages, interpretation);
-  const chunks = await retrieve(question, openai, topK);
-  const context = formatContext(chunks);
-  const answer = await generateAnswer(openai, question, context, interpretation);
-
-  return {
-    answer,
-    citations: chunks.map((chunk) => ({
-      id: chunk.id,
-      rule: chunk.metadata.rule_number || null,
-      heading: chunk.metadata.heading || null,
-      source: chunk.metadata.source || null,
-      pageStart: chunk.metadata.page_start || null,
-      pageEnd: chunk.metadata.page_end || null,
-      distance: chunk.distance,
-    })),
-    interpretation,
-  };
 }
 
 export function buildConversationQuestion(userMessages: string[], interpretation?: InterpretedSituation) {
@@ -188,27 +224,42 @@ export function buildConversationQuestion(userMessages: string[], interpretation
   return appendInterpretation(lines.join("\n"), interpretation);
 }
 
-async function retrieve(question: string, openai: OpenAI, topK: number) {
+async function retrieve(question: string, openai: OpenAI, topK: number, options: AnswerGolfQuestionOptions) {
   const retrievalQuery = buildRetrievalQuery(question);
   const normalizedQuestion = stripAccents(question);
   const embeddingModel = process.env.OPENAI_EMBEDDING_MODEL || DEFAULT_EMBEDDING_MODEL;
-  const embedding = (await openai.embeddings.create({ model: embeddingModel, input: retrievalQuery })).data[0].embedding;
+  const embedding = (
+    await measureStage("embedding", options, () => openai.embeddings.create({ model: embeddingModel, input: retrievalQuery }), {
+      model: embeddingModel,
+      inputLength: retrievalQuery.length,
+    })
+  ).data[0].embedding;
   const supabase = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
     auth: { persistSession: false },
   });
+  const excludeRulePrefixes = excludedRulePrefixes(normalizedQuestion);
 
-  const { data, error } = await supabase.rpc("match_golf_rule_chunks", {
-    query_embedding: embedding,
-    match_count: topK,
-    exclude_rule_prefixes: excludedRulePrefixes(normalizedQuestion),
-  });
+  const { data, error } = (await measureStage(
+    "supabase_match",
+    options,
+    () =>
+      supabase.rpc("match_golf_rule_chunks", {
+        query_embedding: embedding,
+        match_count: topK,
+        exclude_rule_prefixes: excludeRulePrefixes,
+      }),
+    { matchCount: topK, excludedPrefixes: excludeRulePrefixes.join(",") },
+  )) as SupabaseResult<MatchRow[]>;
 
   if (error) {
     throw new Error(`Supabase retrieval failed: ${error.message}`);
   }
 
-  const chunks = (data as MatchRow[]).map(rowToChunk);
-  const expanded = await expandRuleReferences(supabase, retrievalQuery, filterTangentialChunks(chunks, normalizedQuestion));
+  const chunks = (data || []).map(rowToChunk);
+  const filteredChunks = filterTangentialChunks(chunks, normalizedQuestion);
+  const expanded = await measureStage("supabase_expand", options, () => expandRuleReferences(supabase, retrievalQuery, filteredChunks), {
+    initialChunks: filteredChunks.length,
+  });
   return prioritizeReferencedRules(expanded, retrievalQuery);
 }
 
@@ -405,6 +456,78 @@ function formatCitation(metadata: Record<string, unknown>) {
 
 function stripAccents(text: string) {
   return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeOptions(options: number | AnswerGolfQuestionOptions): ResolvedAnswerGolfQuestionOptions {
+  if (typeof options === "number") {
+    return { topK: options };
+  }
+  return { ...options, topK: options.topK ?? DEFAULT_TOP_K };
+}
+
+async function measureStage<T>(
+  stage: PerfStage,
+  options: AnswerGolfQuestionOptions,
+  work: () => PromiseLike<T> | T,
+  detail: Record<string, string | number | boolean | null> = {},
+) {
+  const startedAt = now();
+  logStageStart(stage, options, detail);
+  try {
+    const result = await work();
+    emitMetric(stage, startedAt, options, detail);
+    return result;
+  } catch (error) {
+    logStageError(stage, startedAt, options, error, detail);
+    throw error;
+  }
+}
+
+function logStageStart(stage: PerfStage, options: AnswerGolfQuestionOptions, detail: Record<string, string | number | boolean | null> = {}) {
+  console.info("[golf-rag.perf] stage_start", compactLogObject({ requestId: options.requestId, stage, ...detail }));
+}
+
+function emitMetric(
+  stage: PerfStage,
+  startedAt: number,
+  options: AnswerGolfQuestionOptions,
+  detail: Record<string, string | number | boolean | null> = {},
+) {
+  const metric = { stage, durationMs: roundMs(now() - startedAt) };
+  options.onMetric?.(metric);
+  console.info("[golf-rag.perf] stage_end", compactLogObject({ requestId: options.requestId, ...metric, ...detail }));
+  return metric;
+}
+
+function logStageError(
+  stage: PerfStage,
+  startedAt: number,
+  options: AnswerGolfQuestionOptions,
+  error: unknown,
+  detail: Record<string, string | number | boolean | null> = {},
+) {
+  console.error(
+    "[golf-rag.perf] stage_error",
+    compactLogObject({
+      requestId: options.requestId,
+      stage,
+      durationMs: roundMs(now() - startedAt),
+      error: error instanceof Error ? error.message : String(error),
+      ...detail,
+    }),
+  );
+}
+
+function compactLogObject<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+}
+
+function now() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function roundMs(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 function requiredEnv(name: string) {
