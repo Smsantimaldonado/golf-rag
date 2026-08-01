@@ -22,6 +22,8 @@ const naturalForcesRe = /\b(?:viento|gravedad|fuerzas naturales|se movio sola|se
 const bunkerRe = /\b(?:bunker|búnker|arena)\b/i;
 const worsenedConditionsRe = /\b(?:empeorad|despues|después|otra persona|animal|alguien|dañad|danad|huella|pisada)\b/i;
 
+const ballCollisionRe = /\b(?:pelota|bola)[\s\S]{0,140}\b(?:desviad\w*|detenid\w*|golpead\w*|choc\w*)\b|\b(?:desviad\w*|detenid\w*|golpead\w*|choc\w*)\b[\s\S]{0,140}\b(?:pelota|bola)\b/i;
+
 const queryExpansions: Array<[RegExp, string]> = [
   [
     /\baspersor(?:es)?\b/i,
@@ -46,6 +48,10 @@ const queryExpansions: Array<[RegExp, string]> = [
   [
     lostBallRe,
     "bola perdida Regla 18.2 golpe y distancia volver al lugar del golpe anterior un golpe de penalización bola provisional Regla 18.3 antes de ir a buscar",
+  ],
+  [
+    ballCollisionRe,
+    "colision accidental entre pelotas Regla 9.6 pelota en reposo movida por otra pelota en movimiento reponer sin penalidad Regla 11.1 pelota en movimiento desviada accidentalmente jugar como reposa excepcion juego por golpes pelota jugada desde green golpea pelota en reposo green",
   ],
 ];
 
@@ -289,31 +295,92 @@ async function expandRuleReferences(
   maxExtra = 8,
 ) {
   const seenIds = new Set(chunks.map((chunk) => chunk.id));
-  const references = extractRuleReferences(`${question}\n${chunks.map((chunk) => chunk.text).join("\n")}`);
   const expanded = [...chunks];
 
-  for (const ruleNumber of references) {
-    if (expanded.length >= chunks.length + maxExtra) {
-      break;
-    }
-    if (ruleNumber.startsWith("25.") && !specialModificationRe.test(question)) {
+  // A vector hit often contains only the eligibility half of a rule. Before
+  // adding unrelated cross-references, close the local rule family when that
+  // hit explicitly points to a sibling subsection. This keeps the procedure
+  // that completes the decision (for example, 16.3a -> 16.3b) in context.
+  const targets = collectEvidenceTargets(question, chunks);
+  const [familyRows, referenceRows] = await Promise.all([
+    fetchRuleFamilies(supabase, targets.families),
+    fetchRuleReferences(supabase, targets.references),
+  ]);
+
+  for (const row of [...familyRows, ...referenceRows]) {
+    if (expanded.length >= chunks.length + maxExtra || seenIds.has(row.id)) {
       continue;
     }
-
-    const { data, error } = await supabase
-      .from("golf_rule_chunks")
-      .select("id, content, source, page_start, page_end, heading, rule_number, chunk_type, has_visual_context, visual_assets, metadata")
-      .eq("rule_number", ruleNumber)
-      .limit(1);
-
-    if (error || !data?.length || seenIds.has(data[0].id)) {
-      continue;
-    }
-    expanded.push(rowToChunk({ ...(data[0] as Omit<MatchRow, "distance">), distance: 1 }));
-    seenIds.add(data[0].id);
+    expanded.push(rowToChunk({ ...row, distance: 1 }));
+    seenIds.add(row.id);
   }
 
   return filterTangentialChunks(expanded, stripAccents(question));
+}
+
+type EvidenceTargets = {
+  families: string[];
+  references: string[];
+};
+
+function collectEvidenceTargets(question: string, chunks: RetrievedChunk[]): EvidenceTargets {
+  const families: string[] = [];
+  const references = extractRuleReferences(question).filter((reference) => !reference.startsWith("25.") || specialModificationRe.test(question));
+
+  for (const chunk of [...chunks].sort((left, right) => left.distance - right.distance)) {
+    const sourceRule = String(chunk.metadata.rule_number || "");
+    const sourceFamily = ruleFamily(sourceRule);
+
+    for (const reference of extractRuleReferences(chunk.text)) {
+      if (reference.startsWith("25.") && !specialModificationRe.test(question)) {
+        continue;
+      }
+      if (sourceFamily && ruleFamily(reference) === sourceFamily) {
+        appendUniqueValue(families, sourceFamily);
+      } else {
+        appendUniqueValue(references, reference);
+      }
+    }
+  }
+
+  // Keep context bounded. Families are fetched first because they supply the
+  // directly dependent procedural text; the remaining capacity is available
+  // for cross-rule references.
+  return { families: families.slice(0, 3), references: references.slice(0, 8) };
+}
+
+function ruleFamily(ruleNumber: string) {
+  const match = /^(\d{1,2}\.\d{1,2})/.exec(ruleNumber);
+  return match?.[1] || null;
+}
+
+function appendUniqueValue(values: string[], value: string) {
+  if (value && !values.includes(value)) {
+    values.push(value);
+  }
+}
+
+async function fetchRuleFamilies(supabase: SupabaseClient, families: string[]) {
+  if (families.length === 0) {
+    return [] as Omit<MatchRow, "distance">[];
+  }
+  const filters = families.flatMap((family) => [`rule_number.eq.${family}`, `rule_number.like.${family}.%`]).join(",");
+  const { data, error } = await supabase
+    .from("golf_rule_chunks")
+    .select("id, content, source, page_start, page_end, heading, rule_number, chunk_type, has_visual_context, visual_assets, metadata")
+    .or(filters);
+  return error || !data ? [] : (data as Omit<MatchRow, "distance">[]);
+}
+
+async function fetchRuleReferences(supabase: SupabaseClient, references: string[]) {
+  if (references.length === 0) {
+    return [] as Omit<MatchRow, "distance">[];
+  }
+  const { data, error } = await supabase
+    .from("golf_rule_chunks")
+    .select("id, content, source, page_start, page_end, heading, rule_number, chunk_type, has_visual_context, visual_assets, metadata")
+    .in("rule_number", references);
+  return error || !data ? [] : (data as Omit<MatchRow, "distance">[]);
 }
 
 function buildRetrievalQuery(question: string) {
@@ -407,18 +474,35 @@ function appendInterpretation(question: string, interpretation?: InterpretedSitu
 
 function buildSituationInstructions(question: string) {
   const normalizedQuestion = stripAccents(question).toLowerCase();
+  const playerBallFall = /\b(?:el|la|un|una|mi|su)?\s*jugador(?:a)?\s+(?:se\s+)?(?:cae|caia|cayo|ha\s+caido|habia\s+caido|va\s+a\s+caer|caera|termino\s+cayendo)\b/.test(normalizedQuestion);
+  const explicitPhysicalFall = /\b(?:cuerpo|fisic(?:amente|o|a)|lastim\w*|lesion\w*|tropez\w*|resbal\w*)\b/.test(normalizedQuestion);
   const sprinklerOrImmovable = /\b(?:aspersor|obstruccion inamovible|camino artificial|drenaje|tapa fija)\b/.test(normalizedQuestion);
   const directInterference = /\b(?:stance|swing|reposo|lie|sobre|encima|molesta|interfiere|interferencia|pegada|pegado)\b/.test(normalizedQuestion);
+  const firstBallAtRestCollision = /primera pelota se presume en reposo antes del impacto/.test(normalizedQuestion);
+  const instructions: string[] = [];
+  if (playerBallFall && !explicitPhysicalFall) {
+    instructions.push(
+      "En esta consulta, 'el jugador cae/cayo' significa que la pelota del jugador cayo o entro en el lugar indicado.",
+      "No pidas una aclaracion sobre una caida fisica; aplica las reglas de la pelota en ese lugar.",
+    );
+  }
+  if (firstBallAtRestCollision) {
+    instructions.push(
+      "La primera pelota estaba en reposo antes del impacto y fue movida por la segunda, que estaba en movimiento; no pidas aclaracion sobre ese hecho.",
+      "Analiza cada pelota por separado y cita las Reglas 9.6 y 11.1 solo si el CONTEXTO recuperado las respalda.",
+      "Solo analiza la excepcion de la Regla 11.1a si la consulta afirma que ambas pelotas estaban en el green antes del golpe y que se juega por golpes.",
+    );
+  }
   if (sprinklerOrImmovable && directInterference) {
-    return [
+    instructions.push(
       "La consulta describe una obstrucción inamovible con interferencia directa.",
       "No presentes 'jugar como reposa' como opción y no cites la Regla 14.7 como permiso para jugar la bola donde quedó.",
       "La Regla 14.7 trata jugar desde lugar equivocado, no desplaza el alivio específico.",
       "No trates el aspersor como zona de juego prohibida ni cites la Regla 16.1f salvo que el usuario mencione expresamente una zona prohibida.",
       "Respondé con el alivio sin penalidad de la Regla 16.1/16.1b y el procedimiento práctico.",
-    ].join(" ");
+    );
   }
-  return "No hay instrucciones específicas adicionales.";
+  return instructions.length ? instructions.join(" ") : "No hay instrucciones específicas adicionales.";
 }
 
 function formatInterpretation(interpretation: InterpretedSituation) {

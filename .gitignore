@@ -17,3 +17,4 @@ rag_test_excel_results.json
 scripts/xlsx_cases.py
 scripts/build_rag_test_results.py
 .agents
+casos_prueba_rag_agent.xlsx
