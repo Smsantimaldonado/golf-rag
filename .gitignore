@@ -1,20 +1,43 @@
+# Python
 .venv/
-.env
+venv/
 __pycache__/
-*.pyc
-.vscode/
+*.py[cod]
 *.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+web/.env.local
+web/.env.local.*
+!web/.env.local.example
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated RAG assets
 vectordb/chroma/
 vectordb/page_images/
 vectordb/page_images_preview/
+
+# Next.js and Node.js
 web/node_modules/
 web/.next/
 web/out/
-web/.env.local
 web/.vercel/
+*.tsbuildinfo
+
+# Local test artifacts and notes
+.agents/
 mejoras.txt
 rag_test_excel_results.json
+casos_prueba_rag_agent.xlsx
 scripts/xlsx_cases.py
 scripts/build_rag_test_results.py
-.agents
-casos_prueba_rag_agent.xlsx
