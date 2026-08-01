@@ -1,66 +1,79 @@
-# golf-rag
+# Golf RAG
 
-Asistente experto en reglas de golf con búsqueda documental sobre PDFs locales.
+Asistente de reglas de golf basado exclusivamente en documentación local. Procesa los PDFs de reglas, recupera los pasajes pertinentes y responde con una decisión, explicación, regla citada e incertidumbre cuando falten datos.
 
-El objetivo es construir un agente que responda consultas de texto e imagen sobre situaciones de juego. La respuesta debe estar fundamentada solo en los documentos provistos, citar siempre la regla aplicable y admitir incertidumbre cuando la imagen o la información recuperada no alcancen.
+Incluye dos formas de consulta:
 
-## Documentos fuente
+- CLI local contra una base vectorial Chroma.
+- WebApp Next.js que consulta Supabase/pgvector y está preparada para desplegarse en Vercel.
 
-Los documentos iniciales están en `data/`:
+## Arquitectura
 
-- `GUIA_A_LAS_REGLAS_DE_GOLF.pdf`: guía rápida de reglas.
-- `Reglas_de_Golf.pdf`: libro de reglas propiamente dicho.
-
-Estos PDFs pueden reemplazarse o ampliarse en el futuro. Después de cualquier cambio documental hay que volver a ejecutar la ingesta.
-
-## Flujo previsto
-
-1. Extraer texto por página desde los PDFs.
-2. Crear chunks documentales con metadatos de fuente, página y número de regla.
-3. Generar embeddings reales para esos chunks.
-4. Guardar los chunks y embeddings en una base vectorial persistente.
-5. Recibir consulta de usuario en texto, imagen o ambos.
-6. Interpretar la situación visible y textual.
-7. Buscar reglas e interpretaciones relevantes en la base documental.
-8. Responder con regla citada, decisión y explicación.
-
-El agente no debe usar conocimiento externo para decidir reglas. Si no encuentra sustento suficiente en los documentos, debe decirlo.
-
-## Entorno
-
-Crear el entorno virtual e instalar dependencias:
-
-Windows PowerShell:
-
-```powershell
-.\scripts\setup_env.ps1
+```text
+PDFs de reglas → extracción y chunks → embeddings → Chroma o Supabase/pgvector
+                                                     ↓
+                                             CLI o WebApp → respuesta con citas
 ```
 
-macOS / Linux:
+El modelo no debe usar conocimiento externo para decidir una regla. Si los documentos recuperados o la descripción de la situación no son suficientes, debe indicarlo y pedir la aclaración necesaria.
 
-```bash
-./scripts/setup_env.sh
+## Estructura del repositorio
+
+```text
+agent/       Consulta local y generación de respuestas.
+data/        PDFs fuente de las reglas.
+docs/        Casos de prueba manuales.
+ingest/      Extracción, chunking, embeddings y carga de datos.
+scripts/     Preparación del entorno.
+supabase/    Esquema SQL para pgvector.
+vectordb/    Chunks y manifiestos generados; la base Chroma se ignora.
+web/         WebApp Next.js.
 ```
 
-Para recrear el entorno:
+## Requisitos
 
-```powershell
-.\scripts\setup_env.ps1 -Force
-```
+- Python 3.11 o superior.
+- Node.js 20.9 o superior para la WebApp.
+- Una clave de OpenAI para generar embeddings y respuestas.
+- Un proyecto Supabase solo si se utilizará la WebApp o el backend pgvector.
 
-```bash
-./scripts/setup_env.sh --force
-```
+## Inicio rápido local
 
-## Variables de entorno
+1. Crear e instalar el entorno de Python:
 
-Crear o actualizar `.env` a partir del archivo de ejemplo:
+   **Windows PowerShell**
 
-```powershell
-Copy-Item .env.example .env
-```
+   ```powershell
+   .\scripts\setup_env.ps1
+   ```
 
-Luego completar los valores reales:
+   **macOS / Linux**
+
+   ```bash
+   ./scripts/setup_env.sh
+   ```
+
+   Para recrearlo, usar `-Force` en PowerShell o `--force` en macOS/Linux.
+
+2. Copiar la plantilla de variables y completar al menos `OPENAI_API_KEY`:
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+3. Generar los chunks, crear Chroma y hacer una consulta:
+
+   ```powershell
+   python ingest\chunking.py
+   python ingest\build_vector_db.py
+   python agent\query_agent.py "Mi bola está injugable dentro de un bunker. ¿Puedo dropear fuera?"
+   ```
+
+Use `--show-context` en `query_agent.py` para inspeccionar los pasajes recuperados.
+
+## Configuración
+
+`.env` es solo para uso local y nunca debe versionarse. `.env.example` sí se versiona y contiene todas las variables soportadas:
 
 ```env
 OPENAI_API_KEY=
@@ -68,252 +81,73 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_VISION_MODEL=gpt-5-mini
 OPENAI_ANSWER_MODEL=gpt-5-mini
 OPENAI_INTERPRETER_MODEL=gpt-5-mini
+
 CHROMA_PERSIST_DIR=vectordb/chroma
 CHROMA_COLLECTION_NAME=golf_rules
+
 SUPABASE_URL=
 SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 SUPABASE_DB_URL=
 ```
 
-No commitear `.env`; ya está ignorado por Git.
+`SUPABASE_DB_URL` se utiliza únicamente durante la carga local. `SUPABASE_SERVICE_ROLE_KEY` se usa exclusivamente en el servidor: no debe exponerse al cliente ni incluirse en variables con prefijo `NEXT_PUBLIC_`.
 
-Sí se debe commitear `.env.example`, porque no contiene secretos y sirve como plantilla de configuración.
+## Pipeline de ingesta
 
-## Ingesta textual
-
-Generar chunks desde los PDFs:
+Los PDFs iniciales están en `data/`. Cada vez que se agreguen o reemplacen documentos, vuelva a ejecutar el pipeline.
 
 ```powershell
+# 1. Crear chunks con fuente, página, encabezado y número de regla.
 python ingest\chunking.py
-```
 
-El resultado se escribe en:
-
-```text
-vectordb/chunks.jsonl
-```
-
-Cada línea contiene:
-
-- `id`
-- `text`
-- `metadata.source`
-- `metadata.page_start`
-- `metadata.page_end`
-- `metadata.heading`
-- `metadata.rule_number`
-- `metadata.chunk_type`
-- `metadata.has_visual_context`
-- `metadata.visual_assets`, cuando el chunk está asociado a una página visual
-
-## Ingesta visual
-
-Algunas reglas contienen diagramas o ilustraciones que explican áreas de alivio, puntos de referencia, bunkers, greens, áreas de penalización u otras situaciones visuales.
-
-Primero se renderizan las páginas candidatas y se crea un manifiesto:
-
-```powershell
+# 2. Opcional: detectar páginas con diagramas y renderizarlas.
 python ingest\pdf_visuals.py
-```
 
-Esto genera:
-
-```text
-vectordb/pdf_visuals.jsonl
-vectordb/page_images/
-```
-
-Luego, cuando se vuelve a ejecutar `chunking.py`, los chunks que cruzan esas páginas quedan enlazados con los assets visuales.
-
-Opcionalmente, una vez configurado `.env` con `OPENAI_API_KEY` y, si se desea, `OPENAI_VISION_MODEL`, se pueden generar descripciones visuales preprocesadas:
-
-```powershell
+# 3. Opcional: describir los elementos visuales con OpenAI.
 python ingest\describe_visuals.py
-```
 
-Modelo visual recomendado para esta etapa:
-
-```env
-OPENAI_VISION_MODEL=gpt-5-mini
-```
-
-Esas descripciones se guardan en `vectordb/pdf_visuals.jsonl` y luego se incorporan al texto indexable al regenerar chunks:
-
-```powershell
-python ingest\chunking.py
-```
-
-## Base vectorial
-
-Construir la base Chroma persistente desde `vectordb/chunks.jsonl`:
-
-```powershell
+# 4a. Crear la base local Chroma.
 python ingest\build_vector_db.py
-```
 
-El script:
-
-- lee `vectordb/chunks.jsonl`;
-- genera embeddings con `OPENAI_EMBEDDING_MODEL`;
-- crea o reemplaza la colección `CHROMA_COLLECTION_NAME`;
-- guarda la base en `CHROMA_PERSIST_DIR`;
-- preserva metadatos citables como regla, fuente, páginas y contexto visual.
-
-Para una prueba chica:
-
-```powershell
-python ingest\build_vector_db.py --limit 5
-```
-
-## Supabase pgvector
-
-Supabase es el backend recomendado para la primera webapp deployable en Vercel. Chroma puede seguir usándose localmente, pero Vercel consultará Supabase.
-
-1. Crear un proyecto en Supabase.
-2. Abrir el SQL Editor y ejecutar:
-
-```text
-supabase/schema.sql
-```
-
-3. Completar `.env` con:
-
-```env
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
-SUPABASE_DB_URL=
-```
-
-`SUPABASE_DB_URL` es el connection string de Postgres. Se usa solo para la carga local de chunks. `SUPABASE_SERVICE_ROLE_KEY` se usa del lado servidor en la webapp y no debe exponerse en el cliente.
-
-4. Cargar los chunks en Supabase:
-
-```powershell
+# 4b. O cargar los chunks en Supabase/pgvector.
 python ingest\load_supabase.py --reset
 ```
 
-Para una prueba chica:
+Los resultados textuales se guardan en `vectordb/chunks.jsonl`. El manifiesto visual se guarda en `vectordb/pdf_visuals.jsonl`; las imágenes renderizadas y la base Chroma son artefactos locales ignorados por Git.
 
-```powershell
-python ingest\load_supabase.py --limit 5 --reset
-```
+Para pruebas rápidas, `build_vector_db.py` y `load_supabase.py` admiten `--limit 5`.
 
-## Consulta textual MVP
+## Supabase y la WebApp
 
-Hacer una consulta textual contra Chroma y generar una respuesta fundada:
+1. Cree un proyecto Supabase y ejecute [`supabase/schema.sql`](supabase/schema.sql) en el SQL Editor.
+2. Complete las variables de Supabase en `.env` y ejecute `python ingest\load_supabase.py --reset`.
+3. Configure la WebApp:
 
-```powershell
-python agent\query_agent.py "Mi bola está injugable dentro de un bunker. ¿Puedo dropear fuera?"
-```
+   ```powershell
+   cd web
+   Copy-Item .env.local.example .env.local
+   npm install
+   npm run dev
+   ```
 
-Para inspeccionar los chunks recuperados:
+4. Abra <http://localhost:3000>.
 
-```powershell
-python agent\query_agent.py "Mi consulta" --show-context
-```
+`web/.env.local` requiere `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`, `OPENAI_ANSWER_MODEL`, `OPENAI_INTERPRETER_MODEL`, `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`. El endpoint `POST /api/ask` se ejecuta del lado servidor y permite hasta tres mensajes por caso para consolidar los hechos.
 
-La respuesta debe seguir este formato:
-
-- Regla citada
-- Decisión
-- Explicación
-- Incertidumbre
-
-## Consulta textual WebApp MVP
-
-La primera respuesta de cada caso debe seguir este formato:
-
-- Decisión
-- Explicación
-- Regla citada
-- Incertidumbre
-
-La conversación por caso admite hasta 3 mensajes del usuario. La WebApp usa esos mensajes para consolidar los hechos, pero las reglas siguen saliendo solo del contexto recuperado desde Supabase.
-
-Desde el segundo mensaje del usuario, el agente responde directamente el seguimiento sin forzar las cuatro secciones, pero debe mantener cita de regla y explicación suficiente. Si el usuario agrega datos o corrige el caso, la respuesta debe integrar la información nueva.
-
-Antes de buscar reglas, la WebApp ejecuta una normalización semántica de la consulta. Esa capa puede emparentar términos coloquiales con categorías buscables, por ejemplo una instalación fija de riego con una obstrucción inamovible, y expande la consulta para mejorar el retrieval. Si la confianza es baja, el agente debe pedir una aclaración breve antes de decidir.
-
-La webapp está en `web/` y usa Next.js con un endpoint server-side `POST /api/ask`.
-
-Configurar `web/.env.local` a partir del archivo de ejemplo:
-
-```powershell
-cd web
-Copy-Item .env.local.example .env.local
-```
-
-Luego completar:
-
-```env
-OPENAI_API_KEY=
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-OPENAI_ANSWER_MODEL=gpt-5-mini
-OPENAI_INTERPRETER_MODEL=gpt-5-mini
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-```
-
-La WebApp no usa passcode. El acceso se controla compartiendo o no compartiendo la URL.
-
-Instalar y correr:
-
-```powershell
-cd web
-npm install
-npm run dev
-```
-
-Abrir:
-
-```text
-http://localhost:3000
-```
-
-`web/.env.local` no se debe commitear. `web/.env.local.example` sí se debe commitear.
-
-## Deploy en Vercel
-
-La webapp se puede deployar en Vercel usando `web/` como root directory del proyecto.
-
-Variables necesarias en Vercel:
-
-```env
-OPENAI_API_KEY=
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-OPENAI_ANSWER_MODEL=gpt-5-mini
-OPENAI_INTERPRETER_MODEL=gpt-5-mini
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-```
-
-No cargar `SUPABASE_DB_URL` en Vercel. Esa variable solo se usa localmente para cargar chunks en Supabase.
-
-Antes de deployar, verificar localmente:
+Antes de desplegar, valide la aplicación:
 
 ```powershell
 cd web
 npm run build
 ```
 
-El endpoint `POST /api/ask` usa varias llamadas server-side encadenadas (normalización semántica, embeddings, Supabase y respuesta), por lo que la función está configurada con una duración máxima de 60 segundos para producción.
+Para Vercel, use `web/` como directorio raíz y cargue las mismas variables de la WebApp. No configure `SUPABASE_DB_URL` en Vercel.
 
-Pruebas funcionales mínimas antes del deploy:
+## Pruebas
 
-- Bola equivocada en juego por golpes: debe citar Regla 6.3c y decir la penalización y cómo corregir.
-- Bola no encontrada: debe explicar búsqueda de tres minutos y golpe y distancia sin remisión vacía.
-- Aspersor fijo con interferencia: debe priorizar alivio sin penalidad si el contexto lo sostiene.
-- Segundo mensaje de una mini conversación: debe responder directo al seguimiento, sin forzar el formato de primera respuesta.
-- Si el usuario no menciona área de penalización, no debe agregar una opción hipotética de área de penalización.
+Los escenarios de regresión manual están en [`docs/golden-set.md`](docs/golden-set.md). Incluyen bola equivocada, bola no encontrada, interferencia de una obstrucción inamovible y seguimientos conversacionales.
 
-El set estable de pruebas manuales está en `docs/golden-set.md`.
+## Datos y secretos
 
-
-
-## Próximos pasos
-
-Próximo paso recomendado: preparar el deploy de la WebApp en Vercel usando `web/` como root directory, cargar las variables de entorno de producción y hacer una prueba funcional completa contra Supabase.
-
-Después de eso, agregar entrada de imagen del usuario: interpretar la situación visual, combinarla con la descripción textual y usar esa situación normalizada para la búsqueda documental en Supabase.
+No suba claves, entornos virtuales, dependencias instaladas, builds, caches ni bases vectoriales generadas. Consulte [`.gitignore`](.gitignore) para el detalle de los artefactos locales excluidos.

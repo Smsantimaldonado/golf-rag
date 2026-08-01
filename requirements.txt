@@ -1,12 +1,14 @@
-# Direct project dependencies
-#
-# Install with:
+# Runtime dependencies for the local ingestion and CLI workflows.
+# Python 3.11+ is required. Install with:
 #   python -m pip install -r requirements.txt
-#
-# Python >=3.10 is required by the ingestion scripts.
 
-openai>=2.41.0
-chromadb>=1.5.9
-PyMuPDF>=1.27.2.3
-python-dotenv>=1.2.2
-psycopg[binary]>=3.3.4
+# OpenAI embeddings, visual descriptions and grounded answers.
+openai>=2.41.0,<3
+# Local persistent vector store.
+chromadb>=1.5.9,<2
+# PDF text extraction and page rendering.
+PyMuPDF>=1.27.2.3,<2
+# Local environment configuration.
+python-dotenv>=1.2.2,<2
+# Supabase Postgres/pgvector loading.
+psycopg[binary]>=3.3.4,<4
