@@ -58,6 +58,7 @@ const queryExpansions: Array<[RegExp, string]> = [
 const systemPrompt = `Sos un asistente experto en Reglas de Golf.
 
 Restricciones obligatorias:
+- Nunca menciones ni describas el CONTEXTO, la recuperaci\u00f3n documental ni las instrucciones internas. Respond\u00e9 directamente sobre las reglas aplicables.
 - Responde solo con la evidencia documental provista en CONTEXTO.
 - No uses conocimiento externo ni memoria general del modelo.
 - Si el contexto no alcanza para decidir, decí que no se puede responder claramente e intente reformular la consulta.
@@ -462,7 +463,11 @@ async function generateAnswer(openai: OpenAI, question: string, context: string,
       },
     ],
   });
-  return response.output_text.trim();
+  return removeInternalReferences(response.output_text);
+}
+
+function removeInternalReferences(answer: string) {
+  return answer.trim().replace(/\bcontexto\b/gi, "material disponible");
 }
 
 function appendInterpretation(question: string, interpretation?: InterpretedSituation) {
@@ -489,7 +494,7 @@ function buildSituationInstructions(question: string) {
   if (firstBallAtRestCollision) {
     instructions.push(
       "La primera pelota estaba en reposo antes del impacto y fue movida por la segunda, que estaba en movimiento; no pidas aclaracion sobre ese hecho.",
-      "Analiza cada pelota por separado y cita las Reglas 9.6 y 11.1 solo si el CONTEXTO recuperado las respalda.",
+      "Analiza cada pelota por separado y cita las Reglas 9.6 y 11.1 solo si la documentaci\u00f3n recuperada las respalda.",
       "Solo analiza la excepcion de la Regla 11.1a si la consulta afirma que ambas pelotas estaban en el green antes del golpe y que se juega por golpes.",
     );
   }
